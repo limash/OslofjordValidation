@@ -1,0 +1,8 @@
+# The full-period report of the 2024-2026 run `oslofjorden-run_simulation-20261107-220117`.
+run = "oslofjorden_2026-11-10"          # data/runs/<run>, from gs://fjordsim/results/<run>/
+run_start = 2024-10-01T00:00:00         # the time origin of the run's station files
+start = 2024-10-01T00:00:00             # the window drawn
+spinup = 2024-11-01T00:00:00            # scored from here: October is the adjustment from the initial state
+stop = 2026-10-01T00:00:00
+niva_casts = "niva_ctd_odm2_2024-2026"  # folders in data/inputs/observations/
+imr_casts = "imr_ctd_2024-2026"
