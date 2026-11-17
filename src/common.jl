@@ -1,6 +1,6 @@
 # Shared paths and helpers of the report scripts. A run is scored against the NIVA casts (from ODM2), IMR's
 # casts (from Vannmiljø) and Kartverket, with the operational NorKyst-v3 (its 160 m Oslofjord nest and the
-# 800 m reference run) and IMR's NorFjords-160m hindcast as reference models.
+# 800 m reference run, two separate models) and IMR's NorFjords-160m hindcast as reference models.
 include("report_config.jl")
 using NCDatasets, Dates, Statistics, Printf
 
@@ -8,13 +8,17 @@ const OBS = joinpath(DATA, "observations", CONFIG["niva_casts"])
 # Havforskningsinstituttet's casts (ØkoKyst and Tisler) from Vannmiljø, `imr_fetch.py`.
 const IMR_OBS = joinpath(DATA, "observations", CONFIG["imr_casts"])
 
-const COLORS = Dict("obs" => :black, "fjordsim" => :dodgerblue, "norkyst" => :darkorange, "norfjords" => :forestgreen)
-const LABELS = Dict("obs" => "observed", "fjordsim" => "FjordSim", "norkyst" => "NorKyst v3 (160 m / 800 m)",
-                    "norfjords" => "NorFjords 160 m")
-# The models scored jointly. NorFjords' files end on 2026-06-30, so it is scored beside FjordSim on the samples
-# both reach instead, and the FjordSim–NorKyst scores keep the whole window.
-const MODELS = ("fjordsim", "norkyst")
-const ALL_MODELS = ("fjordsim", "norkyst", "norfjords")
+const COLORS = Dict("obs" => :black, "fjordsim" => :dodgerblue, "norkyst160" => :darkorange, "norkyst800" => :purple,
+                    "norfjords" => :forestgreen)
+const LABELS = Dict("obs" => "observed", "fjordsim" => "FjordSim", "norkyst160" => "NorKyst v3 160 m",
+                    "norkyst800" => "NorKyst v3 800 m", "norfjords" => "NorFjords 160 m")
+# The reference models, each scored beside FjordSim on the samples both reach. NorKyst's 160 m Oslofjord nest
+# (m71) and its 800 m reference run (m00) are separate simulations: a station is read from the nest where the
+# nest covers it, else from the 800 m run, so each station has values from one of them only.
+const REFERENCES = ("norkyst160", "norkyst800", "norfjords")
+const ALL_MODELS = ("fjordsim", REFERENCES...)
+"The model key of a NorKyst grid as `norkyst_points.csv` writes it: \"160m\" is \"norkyst160\"."
+norkyst_key(grid) = "norkyst" * replace(grid, "m" => "")
 
 stem(code) = replace(code, "Ø" => "O", r"[^A-Za-z0-9]" => "_")
 days_since_start(t) = Dates.value(DateTime(t) - START) / 86_400_000

@@ -1,7 +1,7 @@
-# Score FjordSim, NorKyst-v3 and NorFjords-160m against the NIVA casts and FerryBox samples, and draw the CTD
-# figures. FjordSim is sampled from the daily 3D snapshots (`extract.jld2`), NorKyst from `norkyst_pairs.csv`
-# and `norkyst_columns.jld2` (`norkyst_columns.jl`), NorFjords from `norfjords_pairs.csv` and
-# `norfjords_columns.jld2` (`norfjords_columns.jl`).
+# Score FjordSim, NorKyst-v3 (160 m and 800 m, as two models) and NorFjords-160m against the NIVA casts and
+# FerryBox samples, and draw the CTD figures. FjordSim is sampled from the daily 3D snapshots (`extract.jld2`),
+# NorKyst from `norkyst_pairs.csv` and `norkyst_columns.jld2` (`norkyst_columns.jl`), NorFjords from
+# `norfjords_pairs.csv` and `norfjords_columns.jld2` (`norfjords_columns.jl`).
 include("common.jl")
 using JLD2, CairoMakie
 set_theme!(fontsize = 16)
@@ -11,7 +11,9 @@ norkyst = load(joinpath(REPORT_DATA, "norkyst_columns.jld2"), "columns")
 norkyst_points = Dict(r["station"] => r for r in readcsv(joinpath(REPORT_DATA, "norkyst_points.csv")))
 norfjords = load(joinpath(REPORT_DATA, "norfjords_columns.jld2"), "columns")
 norfjords_points = Dict(r["station"] => r for r in readcsv(joinpath(REPORT_DATA, "norfjords_points.csv")))
-reference = Dict("norkyst" => norkyst, "norfjords" => norfjords)
+reference = Dict("norkyst160" => norkyst, "norkyst800" => norkyst, "norfjords" => norfjords)
+"The NorKyst model a station is read from."
+norkyst_of(s) = norkyst_key(norkyst_points[s]["grid"])
 cells = Dict(r["station"] => r for r in readcsv(joinpath(REPORT_DATA, "cells.csv")))
 RUN_END = min(last(run["times"]), STOP)
 
@@ -49,13 +51,15 @@ for s in sort(unique(c.station for c in casts))
         for c in cast
             key = (s, Dates.format(t, "yyyy-mm-ddTHH:MM:SS"), c.depth)
             n = get(NK, key, (NaN, NaN)); f = get(NF, key, (NaN, NaN))
+            n160 = norkyst_of(s) == "norkyst160" ? n : (NaN, NaN); n800 = norkyst_of(s) == "norkyst800" ? n : (NaN, NaN)
             push!(pairs, (station = s, time = t, depth = c.depth,
-                obs_T = c.T, fjordsim_T = interp(run["z"], mT, c.depth), norkyst_T = n[1], norfjords_T = f[1],
-                obs_S = c.S, fjordsim_S = interp(run["z"], mS, c.depth), norkyst_S = n[2], norfjords_S = f[2], gap))
+                obs_T = c.T, fjordsim_T = interp(run["z"], mT, c.depth), norkyst160_T = n160[1], norkyst800_T = n800[1],
+                norfjords_T = f[1],
+                obs_S = c.S, fjordsim_S = interp(run["z"], mS, c.depth), norkyst160_S = n160[2], norkyst800_S = n800[2],
+                norfjords_S = f[2], gap))
         end
     end
 end
-const KEYS = ("obs", MODELS...)
 const ALL_KEYS = ("obs", ALL_MODELS...)
 open(joinpath(REPORT_DATA, "ctd_pairs.csv"), "w") do io
     println(io, "station,time,depth," * join(["$(k)_T" for k in ALL_KEYS], ",") * "," * join(["$(k)_S" for k in ALL_KEYS], ",") * ",snapshot_gap_h")
@@ -84,7 +88,7 @@ function score(ps, var, models)
 end
 scored = filter(p -> p.time >= SPINUP, cast_pairs)
 in_group(p, g) = g == "ALL" || region(p.station) == g
-function skill_rows(groups, select; models = MODELS)
+function skill_rows(groups, select; models)
     rows = String[]
     for grp in groups, var in ("S", "T"), (b, lo, hi) in bands
         ps = filter(p -> select(p, grp) && lo <= p.depth < hi, scored)
@@ -95,24 +99,17 @@ function skill_rows(groups, select; models = MODELS)
     return rows
 end
 columns_of(models) = join(["$(k)_bias,$(k)_rmse" for k in models], ",")
-header = "group,variable,band,n,obs_mean," * columns_of(MODELS)
-writecsv(joinpath(TABLES, "ctd_skill.csv"), header, skill_rows(("ALL", REGIONS...), in_group))
-# FjordSim alone on every sample: NorKyst's columns end at its own, shallower, bottom, so the joint
-# tables leave out most of the deep water.
+# FjordSim alone on every sample, then FjordSim beside each reference model on the samples both reach: the
+# reference models' columns end at their own bottoms, NorKyst's well above the basins' deep water, and
+# NorFjords' files end on 2026-06-30.
 writecsv(joinpath(TABLES, "ctd_skill_fjordsim.csv"), "group,variable,band,n,obs_mean,fjordsim_bias,fjordsim_rmse",
     skill_rows(("ALL", REGIONS...), in_group; models = ("fjordsim",)))
-# NorKyst's 160 m nest and its 800 m run separately, each on the stations it serves.
-writecsv(joinpath(TABLES, "ctd_skill_grid.csv"), "group,variable,band,n,obs_mean," * columns_of(("fjordsim", "norkyst")),
-    skill_rows(("160m", "800m"), (p, g) -> norkyst_points[p.station]["grid"] == g; models = ("fjordsim", "norkyst")))
-writecsv(joinpath(TABLES, "ctd_skill_station.csv"), replace(header, "group" => "station"),
-    skill_rows(sort(unique(p.station for p in scored)), (p, g) -> p.station == g))
-# FjordSim and NorFjords on the samples both reach, to 2026-06-30: NorFjords' columns go to its bottom, so
-# this includes most of the deep water.
-const NF_MODELS = ("fjordsim", "norfjords")
-writecsv(joinpath(TABLES, "ctd_skill_norfjords.csv"), "group,variable,band,n,obs_mean," * columns_of(NF_MODELS),
-    skill_rows(("ALL", REGIONS...), in_group; models = NF_MODELS))
-writecsv(joinpath(TABLES, "ctd_skill_station_norfjords.csv"), "station,variable,band,n,obs_mean," * columns_of(NF_MODELS),
-    skill_rows(sort(unique(p.station for p in scored)), (p, g) -> p.station == g; models = NF_MODELS))
+for k in REFERENCES
+    writecsv(joinpath(TABLES, "ctd_skill_$k.csv"), "group,variable,band,n,obs_mean," * columns_of(("fjordsim", k)),
+        skill_rows(("ALL", REGIONS...), in_group; models = ("fjordsim", k)))
+    writecsv(joinpath(TABLES, "ctd_skill_station_$k.csv"), "station,variable,band,n,obs_mean," * columns_of(("fjordsim", k)),
+        skill_rows(sort(unique(p.station for p in scored)), (p, g) -> p.station == g; models = ("fjordsim", k)))
+end
 
 # Stratification: salinity at 25 m minus at 1 m, per cast.
 strat = []
@@ -128,7 +125,8 @@ open(joinpath(TABLES, "stratification.csv"), "w") do io
         println(io, join([x.station, x.time, region(x.station), [@sprintf("%.2f", x[Symbol(k)]) for k in ALL_KEYS]...], ","))
     end
 end
-for (models, file) in ((MODELS, "stratification_skill.csv"), (NF_MODELS, "stratification_skill_norfjords.csv"))
+for k in REFERENCES
+    models = ("fjordsim", k)
     rows = String[]
     for grp in ("ALL", REGIONS...)
         xs = filter(x -> in_group(x, grp) && x.time >= SPINUP && all(k -> isfinite(x[Symbol(k)]), ("obs", models...)), strat)
@@ -137,7 +135,7 @@ for (models, file) in ((MODELS, "stratification_skill.csv"), (NF_MODELS, "strati
         stats = [@sprintf("%.2f,%.2f", mean(m .- o), sqrt(mean((m .- o) .^ 2))) for m in ([x[Symbol(k)] for x in xs] for k in models)]
         push!(rows, @sprintf("%s,%d,%.2f,", grp, length(xs), mean(o)) * join(stats, ","))
     end
-    writecsv(joinpath(TABLES, file), "group,casts,obs_mean," * columns_of(models), rows)
+    writecsv(joinpath(TABLES, "stratification_skill_$k.csv"), "group,casts,obs_mean," * columns_of(models), rows)
 end
 
 # --- figures -----------------------------------------------------------------------------------------
@@ -152,7 +150,7 @@ for s in ["MO-2", "VAL-1", "LA-1", "SF-3", "TØ-1", "Ø-1", "S-9", "SAN-5", "D-2
         d = [p.depth for p in ps]
         ax = Axis(fig[2(b - 1) + r, c], yreversed = true, title = r == 1 ? Dates.format(t, "yyyy-mm-dd") : "",
             xlabel = var == "S" ? "S" : "T (°C)", ylabel = c == 1 ? "depth (m)" : "", xticks = LinearTicks(4))
-        for k in ("norkyst", "norfjords", "fjordsim", "obs")
+        for k in (REFERENCES..., "fjordsim", "obs")
             x = [val(p, k, var) for p in ps]
             all(isnan, x) && continue
             lines!(ax, x, d, color = COLORS[k], linewidth = k == "obs" ? 2.2 : (k == "fjordsim" ? 3 : 2), label = LABELS[k])
@@ -167,58 +165,86 @@ for s in ["MO-2", "VAL-1", "LA-1", "SF-3", "TØ-1", "Ø-1", "S-9", "SAN-5", "D-2
     save(joinpath(FIG, "profiles_$(stem(s)).png"), fig, px_per_unit = 1.2)
 end
 
-# Bias by station and depth band.
-skill = readcsv(joinpath(TABLES, "ctd_skill_station.csv")); skillall = readcsv(joinpath(TABLES, "ctd_skill.csv"))
-# NorFjords' row is from its scores beside FjordSim, on the samples those two reach.
-skill_nf = readcsv(joinpath(TABLES, "ctd_skill_station_norfjords.csv")); skillall_nf = readcsv(joinpath(TABLES, "ctd_skill_norfjords.csv"))
+"Each of `dates` replaced by the station's cast nearest it, if one lies within 20 days."
+function nearest_casts(s, dates)
+    ts = sort(unique(p.time for p in cast_pairs if p.station == s))
+    isempty(ts) && return DateTime[]
+    near = [ts[argmin(abs.(ts .- DateTime(d)))] for d in dates]
+    return unique(filter(t -> any(d -> abs(t - DateTime(d)) <= Day(20), dates), near))
+end
+
+# Selected profiles: one row per `profile_stations`, its casts nearest `profile_dates` (report.toml), salinity
+# and temperature side by side.
+picked = [(s, nearest_casts(s, CONFIG["profile_dates"])) for s in CONFIG["profile_stations"]]
+ncol = maximum(length(last(p)) for p in picked)
+fig = Figure(size = (250 * 2ncol, 330 * length(picked) + 60))
+for (r, (s, ts)) in enumerate(picked), (j, t) in enumerate(ts), (v, var) in enumerate(("S", "T"))
+    ps = sort(filter(p -> p.station == s && p.time == t, cast_pairs), by = p -> p.depth)
+    d = [p.depth for p in ps]
+    ax = Axis(fig[r, 2(j - 1) + v], yreversed = true, title = v == 1 ? "$s  $(Date(t))" : "", titlealign = :left,
+        xlabel = var == "S" ? "S (g/kg)" : "T (°C)", ylabel = j == 1 && v == 1 ? "depth (m)" : "", xticks = LinearTicks(3))
+    for k in (REFERENCES..., "fjordsim", "obs")
+        x = [val(p, k, var) for p in ps]
+        all(isnan, x) && continue
+        lines!(ax, x, d, color = COLORS[k], linewidth = k == "fjordsim" ? 3 : 2, label = LABELS[k])
+    end
+end
+Legend(fig[length(picked) + 1, :], [LineElement(color = COLORS[k], linewidth = 3) for k in ("obs", ALL_MODELS...)],
+    [LABELS[k] for k in ("obs", ALL_MODELS...)], orientation = :horizontal, framevisible = false)
+save(joinpath(FIG, "profiles_selected.png"), fig, px_per_unit = 1.2)
+
+# Bias by station and depth band, one panel per model, each model on every sample it reaches.
 order = ["LA-1", "SF-3", "TØ-1", "BO-1", "VAL-1", "KF-1", "Ø-1", "I-1", "I-4", "S-9", "MO-2", "SAN-5", "D-2", "D-3", "Im2", "Im3",
          "Hm4", "En-1", "Gk1", "Gl2", "Fl1", "Ej1", "Dk1", "Dm1", "Ep1", "Gp2", "Cj1", "Bl4", "Bn1", "Cq1", "Cp2", "Br1", "Ap2", "Ap3",
          "Aq2", "Aq3", "ALL"]
-order = filter(s -> s == "ALL" || any(r -> r["station"] == s, skill), order)
+stations_scored = Set(p.station for p in scored)
+order = filter(s -> s == "ALL" || s in stations_scored, order)
 bnames = first.(bands)[1:4]
-fig = Figure(size = (1500, 2100))
-for (c, var) in enumerate(("S", "T")), (r, k) in enumerate(ALL_MODELS)
-    B = fill(NaN, length(order), length(bnames))
-    for (i, s) in enumerate(order), (j, b) in enumerate(bnames)
-        src, key = s == "ALL" ? (k == "norfjords" ? skillall_nf : skillall, "group") : (k == "norfjords" ? skill_nf : skill, "station")
-        row = findfirst(x -> x[key] == s && x["variable"] == var && x["band"] == b, src)
-        isnothing(row) || (B[i, j] = num(src[row]["$(k)_bias"]))
-    end
+"Mean error of model `k` at station `s` (or every station, \"ALL\") in depth band `b`, on the samples `k` reaches."
+function band_bias(k, s, var, b)
+    _, lo, hi = bands[findfirst(x -> x[1] == b, bands)]
+    r = score(filter(p -> (s == "ALL" || p.station == s) && lo <= p.depth < hi, scored), var, (k,))
+    return isnothing(r) ? NaN : r[3][1][1]
+end
+fig = Figure(size = (1900, 2300))
+for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(ALL_MODELS)
+    B = [band_bias(k, s, var, b) for s in order, b in bnames]
     lim = var == "S" ? 4.0 : 2.0
-    ax = Axis(fig[r, 2c-1], title = "$(LABELS[k]) − observed, $(var == "S" ? "salinity" : "temperature (°C)")",
-        xticks = (1:length(bnames), bnames), yticks = (1:length(order), order), yreversed = true)
+    ax = Axis(fig[r, c], title = LABELS[k], xticks = (1:length(bnames), bnames), yticks = (1:length(order), order),
+        yreversed = true, yticklabelsvisible = c == 1)
     hm = heatmap!(ax, 1:length(bnames), 1:length(order), permutedims(B), colormap = :balance, colorrange = (-lim, lim), nan_color = :gray92)
     for i in eachindex(order), j in eachindex(bnames)
         isfinite(B[i, j]) && text!(ax, j, i, text = @sprintf("%.1f", B[i, j]), align = (:center, :center), fontsize = 10)
     end
-    r == 1 && Colorbar(fig[1:length(ALL_MODELS), 2c], hm)
+    c == length(ALL_MODELS) && Colorbar(fig[r, c + 1], hm,
+        label = var == "S" ? "model − observed salinity (g/kg)" : "model − observed temperature (°C)")
 end
 save(joinpath(FIG, "ctd_bias.png"), fig, px_per_unit = 1.2)
 
-# Scatter, FjordSim and NorKyst on the samples both reach, NorFjords on the samples it and FjordSim reach,
-# coloured by region.
-common_pairs = filter(p -> isfinite(p.obs_S) && isfinite(p.obs_T) && all(k -> isfinite(val(p, k, "S")), MODELS), scored)
-nf_pairs = filter(p -> isfinite(p.obs_S) && isfinite(p.obs_T) && all(k -> isfinite(val(p, k, "S")), NF_MODELS), scored)
-fig = Figure(size = (1500, 1050))
+# Scatter, each model on the samples it reaches, coloured by region. Region colours stay apart from the models'
+# (`COLORS`), so a point's colour is never read as a model; the regions with fewest samples are drawn last.
+region_colors = (("Inner Oslofjord", :goldenrod), ("Outer fjord", :gray35), ("Drammensfjord", :crimson))
+fig = Figure(size = (1900, 1060))
+Legend(fig[0, 1:length(ALL_MODELS)], [MarkerElement(color = col, marker = :circle, markersize = 14) for (_, col) in region_colors],
+    collect(first.(region_colors)), orientation = :horizontal, framevisible = false)
 for (c, var) in enumerate(("S", "T")), (n, k) in enumerate(ALL_MODELS)
     ax = Axis(fig[c, n], xlabel = "observed", ylabel = n == 1 ? "modelled" : "", aspect = 1,
         title = "$(LABELS[k]), $(var == "S" ? "salinity" : "temperature (°C)")")
-    for (grp, color) in zip(REGIONS, (:dodgerblue, :darkorange, :seagreen))
-        ps = filter(p -> region(p.station) == grp, k == "norfjords" ? nf_pairs : common_pairs)
+    for (grp, color) in region_colors
+        ps = filter(p -> region(p.station) == grp && isfinite(val(p, "obs", var)) && isfinite(val(p, k, var)), scored)
         isempty(ps) && continue
-        scatter!(ax, [val(p, "obs", var) for p in ps], [val(p, k, var) for p in ps], color = (color, 0.3), markersize = 4, label = grp)
+        scatter!(ax, [val(p, "obs", var) for p in ps], [val(p, k, var) for p in ps], color = (color, 0.3), markersize = 4)
     end
     lo, hi = var == "S" ? (0, 36) : (-1, 20)
     lines!(ax, [lo, hi], [lo, hi], color = :black); limits!(ax, lo, hi, lo, hi)
-    c == 1 && n == 1 && axislegend(ax, position = :lt, labelsize = 11, markersize = 10)
 end
 save(joinpath(FIG, "ctd_scatter.png"), fig, px_per_unit = 1.2)
 
-# Stratification, observed against modelled.
-fig = Figure(size = (1500, 540))
+# Stratification, observed against modelled, each model on the casts it reaches at 25 m.
+fig = Figure(size = (1900, 540))
 for (c, k) in enumerate(ALL_MODELS)
     ax = Axis(fig[1, c], xlabel = "observed S(25 m) − S(1 m)", ylabel = c == 1 ? "modelled" : "", aspect = 1, title = LABELS[k])
-    joint = k == "norfjords" ? ("obs", NF_MODELS...) : KEYS
+    joint = ("obs", k)
     for (grp, marker) in (("Outer fjord", :circle), ("Inner Oslofjord", :rect), ("Drammensfjord", :diamond))
         xs = filter(x -> region(x.station) == grp && x.time >= SPINUP && all(k -> isfinite(x[Symbol(k)]), joint), strat)
         isempty(xs) && continue
@@ -237,36 +263,40 @@ function fjordsim_daily(s, var, d)
     return run["times"], [interp(run["z"], run[var][:, c, n], d) for n in eachindex(run["times"])]
 end
 function reference_daily(k, s, var, d)
-    haskey(reference[k], s) || return DateTime[], Float64[]
+    (haskey(reference[k], s) && (!startswith(k, "norkyst") || norkyst_of(s) == k)) || return DateTime[], Float64[]
     col = reference[k][s]; V = var == "S" ? col.daily_S : col.daily_T
     return col.days, [interp(depths(col, n), V[:, n], d) for n in eachindex(col.days)]
 end
 "Each pick's salinity and temperature at its depth through the window, as `<name>.png` and `<name>.csv`."
 function drift_figure(picks, name)
     drift_rows = String[]
-    fig = Figure(size = (1500, 270 * length(picks)))
+    fig = Figure(size = (1500, 270 * length(picks) + 50))
+    Legend(fig[0, 1:2], [[LineElement(color = COLORS[k], linewidth = 3) for k in ALL_MODELS]; MarkerElement(color = :black, marker = :circle, markersize = 12)],
+        [[LABELS[k] for k in ALL_MODELS]; "observed"], orientation = :horizontal, framevisible = false)
     for (n, (s, d)) in enumerate(picks), (c, var) in enumerate(("S", "T"))
         ax = Axis(fig[n, c], title = @sprintf("%s, %s at %.0f m", s, var == "S" ? "salinity" : "temperature", d), ylabel = var == "S" ? "g/kg" : "°C")
-        t, v = fjordsim_daily(s, var, d); lines!(ax, days_since_start.(t), v, color = COLORS["fjordsim"], linewidth = 2.5, label = LABELS["fjordsim"])
-        tn, vn = reference_daily("norkyst", s, var, d); lines!(ax, days_since_start.(tn), vn, color = COLORS["norkyst"], linewidth = 2, label = LABELS["norkyst"])
-        tf, vf = reference_daily("norfjords", s, var, d); lines!(ax, days_since_start.(tf), vf, color = COLORS["norfjords"], linewidth = 2, label = LABELS["norfjords"])
+        t, v = fjordsim_daily(s, var, d); lines!(ax, days_since_start.(t), v, color = COLORS["fjordsim"], linewidth = 2.5)
+        series = [reference_daily(k, s, var, d) for k in REFERENCES]
+        for (k, (tk, vk)) in zip(REFERENCES, series)
+            lines!(ax, days_since_start.(tk), vk, color = COLORS[k], linewidth = 2)
+        end
         ps = filter(p -> p.station == s && abs(p.depth - d) <= 1.0, cast_pairs)
         ts = unique(p.time for p in ps)
         ob = [mean(val(p, "obs", var) for p in ps if p.time == x) for x in ts]
-        isempty(ts) || scatter!(ax, days_since_start.(ts), ob, color = :black, markersize = 14, label = "observed")
+        isempty(ts) || scatter!(ax, days_since_start.(ts), ob, color = :black, markersize = 14)
         n == length(picks) && (ax.xlabel = DAYS_LABEL)
         xlims!(ax, 0, days_since_start(RUN_END) + 3)
-        n == 1 && c == 1 && axislegend(ax, position = :lb, labelsize = 10)
         for x in ts
-            # A model's value on the cast's day; NaN where its series has ended (NorFjords after June 2026).
+            # A model's value on the cast's day; NaN where it has no series (the other NorKyst grid) or its
+            # series has ended (NorFjords after June 2026).
             nearest(times, values) = isempty(times) ? NaN :
                 (k = argmin(abs.(Dates.value.(times .- x))); abs(times[k] - x) <= Day(1) ? values[k] : NaN)
-            push!(drift_rows, @sprintf("%s,%.0f,%s,%s,%.2f,%.2f,%.2f,%.2f", s, d, var, Date(x), mean(val(p, "obs", var) for p in ps if p.time == x),
-                nearest(t, v), nearest(tn, vn), nearest(tf, vf)))
+            push!(drift_rows, @sprintf("%s,%.0f,%s,%s,%.2f,%.2f,", s, d, var, Date(x), mean(val(p, "obs", var) for p in ps if p.time == x),
+                nearest(t, v)) * join([@sprintf("%.2f", nearest(tk, vk)) for (tk, vk) in series], ","))
         end
     end
     save(joinpath(FIG, "$name.png"), fig, px_per_unit = 1.1)
-    writecsv(joinpath(TABLES, "$name.csv"), "station,depth,variable,date,obs,fjordsim,norkyst,norfjords", drift_rows)
+    writecsv(joinpath(TABLES, "$name.csv"), "station,depth,variable,date,obs,fjordsim," * join(REFERENCES, ","), drift_rows)
 end
 drift_figure(picks, "basin_drift")
 # The surface, outer fjord to Oslo harbour; observations are the casts' 0.5 and 1.5 m samples.
@@ -288,7 +318,7 @@ for (n, s) in enumerate(boxes), (c, var) in enumerate(("S", "T"))
         xlabel = n == length(boxes) ? DAYS_LABEL : "")
     t, v = fjordsim_daily(s, var, 4.0)
     lines!(ax, days_since_start.(t), v, color = COLORS["fjordsim"], linewidth = 2, label = LABELS["fjordsim"])
-    for k in ("norkyst",)
+    for k in REFERENCES
         tn, vn = reference_daily(k, s, var, 4.0)
         lines!(ax, days_since_start.(tn), vn, color = COLORS[k], linewidth = 2, label = LABELS[k])
     end
@@ -301,11 +331,11 @@ save(joinpath(FIG, "ferrybox.png"), fig, px_per_unit = 1.1)
 rows = String[]
 for s in boxes, var in ("S", "T")
     ps = filter(p -> p.station == s && p.time >= SPINUP, pairs)
-    r = score(ps, var, MODELS); isnothing(r) && continue
+    r = score(ps, var, ("fjordsim", norkyst_of(s))); isnothing(r) && continue
     n, om, st = r
-    push!(rows, @sprintf("%s,%s,%d,%.2f,", s, var, n, om) * join([@sprintf("%.2f,%.2f", x...) for x in st], ","))
+    push!(rows, @sprintf("%s,%s,%s,%d,%.2f,", s, var, norkyst_of(s), n, om) * join([@sprintf("%.2f,%.2f", x...) for x in st], ","))
 end
-writecsv(joinpath(TABLES, "ferrybox_skill.csv"), "station,variable,n,obs_mean," * columns_of(MODELS), rows)
+writecsv(joinpath(TABLES, "ferrybox_skill.csv"), "station,variable,norkyst_model,n,obs_mean,fjordsim_bias,fjordsim_rmse,norkyst_bias,norkyst_rmse", rows)
 end
 
 # Map: salinity bias below 20 m.
@@ -313,13 +343,12 @@ lon, lat, h = NCDataset(joinpath(RUN_SETUP, "bathymetry.nc")) do ds
     Float64.(ds["lon"][:]), Float64.(ds["lat"][:]), Float64.(coalesce.(ds["h"][:, :], NaN))
 end
 depthmap = map(x -> x < 0 ? -x : NaN, h)
+"Model `k`'s mean salinity error below 20 m at station `s`, on the samples it reaches."
 function deep_bias(s, k)
-    rows = filter(r -> r["station"] == s && r["variable"] == "S" && r["band"] in ("20-50 m", ">50 m"), k == "norfjords" ? skill_nf : skill)
-    isempty(rows) && return NaN
-    n = [num(r["n"]) for r in rows]; b = [num(r["$(k)_bias"]) for r in rows]
-    return sum(n .* b) / sum(n)
+    r = score(filter(p -> p.station == s && p.depth >= 20, scored), "S", (k,))
+    return isnothing(r) ? NaN : r[3][1][1]
 end
-fig = Figure(size = (1700, 1050))
+fig = Figure(size = (2200, 1050))
 for (c, k) in enumerate(ALL_MODELS)
     xl, yl = (10.0, 11.2), (58.95, 59.93)
     ax = Axis(fig[1, c], title = LABELS[k], xlabel = "Longitude (°E)", ylabel = c == 1 ? "Latitude (°N)" : "")

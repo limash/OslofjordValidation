@@ -1,10 +1,10 @@
-# Score FjordSim, NorKyst-v3 and NorFjords-160m against IMR's casts in the outer fjord (`imr_fetch.py`):
+# Score FjordSim, NorKyst-v3 (160 m and 800 m, as two models) and NorFjords-160m against IMR's casts in the outer fjord (`imr_fetch.py`):
 # the ØkoKyst stations Færder, Torbjørnskjær (OF-1), Missingene (OF-2), Bastøy (OF-4) and Breiangen vest
 # (OF-5), and Tisler. Vannmiljø dates a cast without a time of day, so each model is taken over the cast's
 # day: FjordSim as the mean of the snapshots at its start and end (`extract.jld2`), NorKyst and NorFjords as
-# their daily means (`imr_norkyst.jld2`, `imr_norfjords.jld2`). Writes `imr_pairs.csv`, `imr_skill.csv`
-# (FjordSim and NorKyst on the samples both reach), `imr_skill_norfjords.csv` (FjordSim and NorFjords on the
-# samples both reach), `imr_skill_each.csv` (each model on every sample it reaches) and the figures
+# their daily means (`imr_norkyst.jld2`, `imr_norfjords.jld2`). Writes `imr_pairs.csv`, `imr_skill_<model>.csv`
+# (FjordSim and one reference model on the samples both reach), `imr_skill_each.csv` (each model on every
+# sample it reaches) and the figures
 # `imr_bias.png` and `imr_series_<station>.png`.
 include("common.jl")
 using JLD2, CairoMakie
@@ -12,7 +12,9 @@ set_theme!(fontsize = 16)
 
 run = load(joinpath(REPORT_DATA, "extract.jld2"))   # the NIVA and IMR cells were extracted together
 cells = Dict(r["station"] => r for r in readcsv(joinpath(REPORT_DATA, "imr_cells.csv")))
-reference = Dict(k => load(joinpath(REPORT_DATA, "imr_$k.jld2"), "columns") for k in ("norkyst", "norfjords"))
+norkyst = load(joinpath(REPORT_DATA, "imr_norkyst.jld2"), "columns")
+reference = Dict("norkyst160" => norkyst, "norkyst800" => norkyst,
+                 "norfjords" => load(joinpath(REPORT_DATA, "imr_norfjords.jld2"), "columns"))
 # South to north.
 const STATIONS = ["Færder", "Torbjørnskjær", "Tisler-1", "Tisler-5", "Missingene", "Bastøy", "Breiangen vest"]
 const KEYS = ("obs", ALL_MODELS...)
@@ -25,9 +27,10 @@ function fjordsim_column(station, day, var)
     return (run[var][:, c, k] .+ run[var][:, c, k+1]) ./ 2
 end
 
-"A reference model's daily mean of `var` at `depth` on `day`."
+"A reference model's daily mean of `var` at `depth` on `day`; NaN at a station the other NorKyst grid serves."
 function reference_value(model, station, day, var, depth)
     col = get(reference[model], station, nothing); isnothing(col) && return NaN
+    startswith(model, "norkyst") && norkyst_key(col.grid) != model && return NaN
     d = findfirst(==(day), col.days); isnothing(d) && return NaN
     z = col.z isa AbstractMatrix ? col.z[:, d] : col.z
     return interp(z, (var == "T" ? col.daily_T : col.daily_S)[:, d], depth)
@@ -40,10 +43,12 @@ for c in niva_casts(START, STOP; dir = IMR_OBS)
     isnothing(mT) && continue
     push!(pairs, (station = c.station, time = c.time, depth = c.depth,
         obs_T = c.T, fjordsim_T = interp(run["z"], mT, c.depth),
-        norkyst_T = reference_value("norkyst", c.station, day, "T", c.depth),
+        norkyst160_T = reference_value("norkyst160", c.station, day, "T", c.depth),
+        norkyst800_T = reference_value("norkyst800", c.station, day, "T", c.depth),
         norfjords_T = reference_value("norfjords", c.station, day, "T", c.depth),
         obs_S = c.S, fjordsim_S = interp(run["z"], mS, c.depth),
-        norkyst_S = reference_value("norkyst", c.station, day, "S", c.depth),
+        norkyst160_S = reference_value("norkyst160", c.station, day, "S", c.depth),
+        norkyst800_S = reference_value("norkyst800", c.station, day, "S", c.depth),
         norfjords_S = reference_value("norfjords", c.station, day, "S", c.depth)))
 end
 sort!(pairs, by = p -> (p.station, p.time, p.depth))
@@ -67,14 +72,15 @@ function score(ps, var, models)
 end
 groups = ["ALL"; STATIONS]
 in_group(p, g) = g == "ALL" || p.station == g
-for (models, file) in ((MODELS, "imr_skill.csv"), (("fjordsim", "norfjords"), "imr_skill_norfjords.csv"))
+for k in REFERENCES
+    models = ("fjordsim", k)
     rows = String[]
     for g in groups, var in ("S", "T"), (b, lo, hi) in bands
         r = score(filter(p -> in_group(p, g) && lo <= p.depth < hi, scored), var, models); isnothing(r) && continue
         n, om, st = r
         push!(rows, @sprintf("%s,%s,%s,%d,%.2f,", g, var, b, n, om) * join([@sprintf("%.2f,%.2f", x...) for x in st], ","))
     end
-    writecsv(joinpath(TABLES, file), "station,variable,band,n,obs_mean," * join(["$(k)_bias,$(k)_rmse" for k in models], ","), rows)
+    writecsv(joinpath(TABLES, "imr_skill_$k.csv"), "station,variable,band,n,obs_mean," * join(["$(k)_bias,$(k)_rmse" for k in models], ","), rows)
 end
 rows = String[]
 for g in groups, var in ("S", "T"), (b, lo, hi) in bands
@@ -124,8 +130,10 @@ for s in STATIONS
         lines!(ax, x, y, color = COLORS["fjordsim"], linewidth = 2, label = LABELS["fjordsim"])
         at = filter(p -> p.depth == d, ps)
         isempty(at) && continue   # no sample at this depth
-        for k in ("norkyst", "norfjords")
-            scatterlines!(ax, days_since_start.([p.time + Hour(12) for p in at]), [val(p, k, var) for p in at],
+        for k in REFERENCES
+            y = [val(p, k, var) for p in at]
+            all(isnan, y) && continue
+            scatterlines!(ax, days_since_start.([p.time + Hour(12) for p in at]), y,
                 color = COLORS[k], markersize = 8, linewidth = 1.5, label = LABELS[k])
         end
         scatter!(ax, days_since_start.([p.time + Hour(12) for p in at]), [val(p, "obs", var) for p in at],

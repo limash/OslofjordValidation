@@ -111,10 +111,12 @@ consts = ["M2", "S2", "N2", "O1", "K1", "M4"]
 rows = String[]
 for g in gauges, c in consts
     L = level[g.name]
-    push!(rows, @sprintf("%s,%s,%.1f,%.1f,%.0f,%.1f,%.0f,%.1f", g.name, c, amp(L.fo, c), amp(L.fm, c), phase_difference(L.fm, L.fo, c),
-        amp(L.fn, c), phase_difference(L.fn, L.fo, c), amp(fb, c)))
+    push!(rows, @sprintf("%s,%s,%.1f,%.1f,%.0f,%s,%.1f,%.0f,%.1f", g.name, c, amp(L.fo, c), amp(L.fm, c), phase_difference(L.fm, L.fo, c),
+        norkyst_key(L.grid), amp(L.fn, c), phase_difference(L.fn, L.fo, c), amp(fb, c)))
 end
-writecsv(joinpath(TABLES, "tides.csv"), "station,constituent,kartverket_obs_cm,fjordsim_cm,fjordsim_minus_obs_phase_deg,norkyst_cm,norkyst_minus_obs_phase_deg,norkyst_boundary_cm", rows)
+# `norkyst_model` is the NorKyst grid at the gauge; `norkyst800_boundary_cm` is the 800 m run's sea level at the
+# open boundary, which FjordSim's boundary data come from, before the Viker correction.
+writecsv(joinpath(TABLES, "tides.csv"), "station,constituent,kartverket_obs_cm,fjordsim_cm,fjordsim_minus_obs_phase_deg,norkyst_model,norkyst_cm,norkyst_minus_obs_phase_deg,norkyst800_boundary_cm", rows)
 rows = String[]
 for g in gauges, c in consts
     F = nf_tide[g.name]
@@ -142,15 +144,18 @@ for (n, g) in enumerate(gauges)
     L = level[g.name]; F = nf_tide[g.name]
     barplot!(ax, xs .- 1.5w, [amp(L.fo, c) for c in consts], width = w, color = COLORS["obs"], label = "observed (Kartverket)")
     barplot!(ax, xs .- 0.5w, [amp(L.fm, c) for c in consts], width = w, color = COLORS["fjordsim"], label = LABELS["fjordsim"])
-    barplot!(ax, xs .+ 0.5w, [amp(L.fn, c) for c in consts], width = w, color = COLORS["norkyst"], label = LABELS["norkyst"])
-    barplot!(ax, xs .+ 1.5w, [amp(F.ff, c) for c in consts], width = w, color = COLORS["norfjords"],
-        label = "$(LABELS["norfjords"]), fitted over 2024")
-    scatter!(ax, xs .+ 1.5w, [amp(F.fo, c) for c in consts], color = :black, marker = :hline, markersize = 20,
-        label = "observed over 2024")
-    scatter!(ax, xs .+ 0.5w, [amp(fb, c) for c in consts], color = :gray45, marker = :hline, markersize = 20,
-        label = "NorKyst v3 sea level at the open boundary, uncorrected")
-    n == 1 && (fig[2, 1:3] = Legend(fig, ax, orientation = :horizontal, nbanks = 2, framevisible = false))
+    barplot!(ax, xs .+ 0.5w, [amp(L.fn, c) for c in consts], width = w, color = COLORS[norkyst_key(L.grid)])
+    barplot!(ax, xs .+ 1.5w, [amp(F.ff, c) for c in consts], width = w, color = COLORS["norfjords"])
+    scatter!(ax, xs .+ 1.5w, [amp(F.fo, c) for c in consts], color = :black, marker = :hline, markersize = 20)
+    scatter!(ax, xs .+ 0.5w, [amp(fb, c) for c in consts], color = :gray45, marker = :hline, markersize = 20)
 end
+fig[2, 1:3] = Legend(fig,
+    [[PolyElement(color = COLORS[k]) for k in ("obs", ALL_MODELS...)];
+     [MarkerElement(color = c, marker = :hline, markersize = 20) for c in (:black, :gray45)]],
+    ["observed (Kartverket)", LABELS["fjordsim"], LABELS["norkyst160"], LABELS["norkyst800"],
+     "$(LABELS["norfjords"]), fitted over 2024", "observed over 2024",
+     "$(LABELS["norkyst800"]) at the open boundary, uncorrected"],
+    orientation = :horizontal, nbanks = 2, framevisible = false)
 save(joinpath(FIG, "tide_amplitudes.png"), fig, px_per_unit = 1.5)
 
 # Three weeks around the window's largest weather-driven excursion at Oscarsborg.
@@ -169,8 +174,8 @@ for (n, g) in enumerate(gauges)
     lines!(ax, x, L.m[sel] .- mean(L.m), color = COLORS["fjordsim"], label = LABELS["fjordsim"])
     seln = findall(t -> event[1] <= t < event[2], L.tn)
     lines!(ax, [Dates.value(t - event[1]) / 86_400_000 for t in L.tn[seln]], L.nn[seln] .- mean(L.nn),
-        color = COLORS["norkyst"], label = LABELS["norkyst"])
-    n == 1 && axislegend(ax, position = :lt)
+        color = COLORS[norkyst_key(L.grid)], label = LABELS[norkyst_key(L.grid)])
+    axislegend(ax, position = :lt)
 end
 save(joinpath(FIG, "waterlevel_event.png"), fig, px_per_unit = 1.5)
 
@@ -184,8 +189,8 @@ ax = Axis(fig[1, 1], title = "Oscarsborg: non-tidal water level (series minus it
 lines!(ax, days_since_start.(DateTime.(days)), dm(L.ro .- mean(L.ro)), color = COLORS["obs"], label = "observed")
 lines!(ax, days_since_start.(DateTime.(days)), dm(L.rm .- mean(L.rm)), color = COLORS["fjordsim"], label = LABELS["fjordsim"])
 daysn = unique(Date.(L.tn)); dtn = Date.(L.tn)
-lines!(ax, days_since_start.(DateTime.(daysn)), [mean((L.rn .- mean(L.rn))[dtn .== d]) for d in daysn], color = COLORS["norkyst"],
-    label = LABELS["norkyst"])
+lines!(ax, days_since_start.(DateTime.(daysn)), [mean((L.rn .- mean(L.rn))[dtn .== d]) for d in daysn],
+    color = COLORS[norkyst_key(L.grid)], label = LABELS[norkyst_key(L.grid)])
 D = daily_level[("NorFjords 160 m", "Oscarsborg")]
 lines!(ax, days_since_start.(DateTime.(D.days)), D.m, color = COLORS["norfjords"], label = "$(LABELS["norfjords"]) (daily-mean output)")
 axislegend(ax, position = :lt)

@@ -18,16 +18,20 @@ the environments and the step-by-step workflow; read it before any step.
   `bin/surface_videos.sh` here unless the user asks for it.
 - **Code, data and output stay apart.** Code goes in `src/`, `bin/` and `reports/`. Downloads go in
   `data/` and nowhere else. Everything a script writes goes in `output/<report>/`: figures in
-  `figures/`, results in `tables/`, intermediate files in `data/`, videos in `video/`, and the PDF at
-  its top. Never edit a file in `output/` or `data/` by hand: change the script and rerun it. Keep
+  `figures/`, results in `tables/`, intermediate files in `data/`, videos in `video/`, and the HTML page
+  at its top. Never edit a file in `output/` or `data/` by hand: change the script and rerun it. Keep
   only what a report or a later step reads; no logs, scratch files or part files once merged.
 - **One report per `reports/<report>/` and `output/<report>/`.** Every script takes the report from
   `REPORT=<name>` (or from the first argument of `src/run_scripts.jl`). A new report gets a new name. Do
   not rerun another report's steps into its folder unless that is the task.
-- **The report text is hand-written.** `reports/<report>/build_pdf.py` holds the findings with their
-  numbers. Take every number from the CSVs in `output/<report>/`, and check them again after any
-  rerun. Start a new report's text from the last one and rewrite it; never leave the old run's numbers
-  in it.
+- **The report text is hand-written.** `reports/<report>/build_html.py` holds the findings and computes
+  their numbers from the CSVs in `output/<report>/`; never type a result number into the text. Check
+  them again after any rerun. Start a new report's text from the last one and rewrite it; never leave
+  the old run's numbers in it. Order: the simulation's setup, the surface video, the validation data,
+  results, a numbered summary. Write short, concrete, active sentences; give dates, not words like
+  "full period"; keep tables short and captions to what the figure shows.
+- **NorKyst v3 160 m and 800 m are two models.** The 160 m nest (m71) is not nested in the 800 m run
+  (m00) the reports read. Never pool them: every table, figure and legend names which one it shows.
 - **Ask before:** adding a Julia or Python dependency (`Pkg.add`, `uv add`), deleting anything in
   `output/` or `data/runs/`, and running a test that takes over 5 minutes or uses GCP (a VM, the bucket),
   even through `bin/vm_run.sh`: say what, how long and what it costs.

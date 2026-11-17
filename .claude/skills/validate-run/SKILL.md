@@ -1,6 +1,6 @@
 ---
 name: validate-run
-description: Make a validation report of a FjordSim Oslofjord run - pick the run, check and fetch the inputs, extract the model on a GCP preprocessing VM, run the scripts, write and build the PDF. Use when asked to validate or score a run, or to make a new report in reports/.
+description: Make a validation report of a FjordSim Oslofjord run - pick the run, check and fetch the inputs, extract the model on a GCP preprocessing VM, run the scripts, write and build the HTML page. Use when asked to validate or score a run, or to make a new report in reports/.
 ---
 
 # Validating a run
@@ -64,18 +64,20 @@ Check the files themselves, not a remembered date:
 
 ## 6. The text
 
-- Copy the last report's `build_pdf.py`. Rewrite the docstring, `FOOTER`, and every sentence that holds a
-  number or a judgement. Add or drop sections as agreed in step 1. Where a number can be computed from a
-  `read(...)` table in the script, compute it rather than typing it.
-- Then grep the new `build_pdf.py` for the old report's name, run tag and dates: none may be left.
-- `bin/build_pdf.sh <report>`, then read the PDF (`Read` with `pages`). Check the figures are this run's
-  and the numbers match the CSVs.
+- Set `profile_stations` and `profile_dates` in `report.toml` to casts that show this run's main
+  errors, and rerun `ctd.jl` if they changed.
+- Copy the last report's `build_html.py`. Rewrite the setup table from the run's setup file (diff it against
+  the last run's), and every sentence that holds a judgement. Add or drop sections as agreed in step 1.
+  Compute every result number from a `read(...)` table or `ctd_pairs.csv`; never type one.
+- Then grep the new `build_html.py` for the old report's name, run tag and dates: none may be left.
+- `bin/build_html.sh <report>`, then print the page's text (strip the tags) and read it against the
+  figures: a claim must hold in the figure it links. Check every `figures/` and `video/` link exists.
 
 ## 7. Finish
 
 - No VM left on: `gcloud compute instances list --project=nivatest-1 --filter="name~fjordsim-preprocessing"`
   should show none of them `RUNNING` unless something else uses it.
 - Tell the user:
-  - the PDF's path and the main findings;
+  - the page's path and the main findings;
   - what was copied from the bucket (GB) and how long the VMs ran;
   - what was skipped, and why.

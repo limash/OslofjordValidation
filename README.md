@@ -7,18 +7,19 @@ run on GCP and read from the bucket. Each report scores one run against:
 - **Kartverket's tide gauges.**
 
 Two reference models are scored beside it:
-- the operational **NorKyst v3** (its 160 m Oslofjord nest and the 800 m run);
+- the operational **NorKyst v3**: its 160 m Oslofjord nest (m71) and its 800 m run (m00), two separate
+  simulations scored as two models. A station is read from the nest where it covers it, else from the 800 m run;
 - IMR's **NorFjords 160 m** hindcast.
 
-The output is a set of CSV tables, figures and a PDF.
+The output is a set of CSV tables, figures, videos and an HTML page.
 
 ## Layout
 
 | Folder | What it holds | In git |
 |---|---|---|
-| `bin/` | shell tools: list, fetch and extract runs from the bucket (on a GCP VM), surface videos, build a PDF | yes |
-| `src/` | the report scripts (Julia) and the observation fetchers and PDF helpers (Python) | yes |
-| `reports/<report>/` | one report's settings `report.toml` and its text `build_pdf.py` | yes |
+| `bin/` | shell tools: list, fetch and extract runs from the bucket (on a GCP VM), surface videos, build the page | yes |
+| `src/` | the report scripts (Julia), the observation fetchers and the page helpers `html_report.py` (Python) | yes |
+| `reports/<report>/` | one report's settings `report.toml` and its text `build_html.py` | yes |
 | `data/inputs/` | shared inputs, all at the stations: `observations/`, `norkyst_v3_stations/`, `norfjords_stations/` | no |
 | `data/runs/<run>/` | one run, only what the reports read (below) | no |
 | `output/<report>/` | everything a report's scripts write (below) | no |
@@ -27,7 +28,7 @@ A report's output:
 
 ```
 output/<report>/
-├── <report>.pdf
+├── <report>.html   the report; open it in a browser from this folder (it links figures/ and video/)
 ├── figures/   PNG figures
 ├── tables/    the results as CSV: skill scores, tides, water level, drift, domain statistics
 ├── data/      what one script hands to the next: extract.jld2 (FjordSim at the station cells),
@@ -73,8 +74,8 @@ REPORT=<report> julia --project src/imr_norfjords.jl            #    NorFjords a
 bin/vm_run.sh <report> extract            # 6. FjordSim columns from the 3D snapshots, on a GCP VM
 julia --project src/run_scripts.jl <report> stations.jl section.jl sill_exchange.jl \
     ctd.jl imr.jl hovmoller.jl analysis.jl map.jl              # 7. tables and figures
-#                                           8. reports/<report>/build_pdf.py (copy the last one, rewrite the text)
-bin/build_pdf.sh <report>                 # 9. output/<report>/<report>.pdf
+#                                           8. reports/<report>/build_html.py (copy the last one, rewrite the text)
+bin/build_html.sh <report>                # 9. output/<report>/<report>.html
 ```
 
 Steps 1 to 4 can come in any order. Step 6 is the slow one: the VM reads about 7 GB per month of run
@@ -110,7 +111,7 @@ machine.
 
 ### Videos
 
-Videos go in `output/<report>/video/` and are not part of the PDF.
+Videos go in `output/<report>/video/`; the page plays them from there.
 
 ```bash
 REPORT=<report> julia --project src/section_video.jl [fps]   # the Drammensfjord section, one frame per day
@@ -135,6 +136,8 @@ spinup = 2024-11-01T00:00:00            # scored from here
 stop = 2026-10-01T00:00:00
 niva_casts = "niva_ctd_odm2_2024-2026"  # folders in data/inputs/observations/
 imr_casts = "imr_ctd_2024-2026"
+profile_stations = ["VAL-1", "Im2", "D-2", "Dk1", "Ep1"]          # the page's profile figure: each station at
+profile_dates = [2025-12-10, 2026-03-18, 2026-06-26, 2026-08-14]  # its cast nearest each date (within 20 days)
 # stamp = "20261107T210205"             # only if data/runs/<run>/results holds more than one run log
 ```
 
@@ -180,4 +183,4 @@ service account, `niva-service-account.json`. Kartverket's monthly files are rea
 
 The scripts come from the full-period report of run `20261107T210205`, which was archived as
 `oslofjorden_2026-11-10`. That report's output is `output/oslofjorden_2026-11-10/`. Its scripts were
-rerun here and gave the same tables and the same PDF text.
+rerun here and gave the same tables. Its text is now the HTML page.
