@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pandas",
     "pillow",
+    "pyjwt[crypto]>=2.15.1",
     "pyproj",
     "reportlab",
     "requests",

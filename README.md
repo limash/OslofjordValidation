@@ -16,7 +16,7 @@ The output is a set of CSV tables, figures and a PDF.
 
 | Folder | What it holds | In git |
 |---|---|---|
-| `bin/` | shell tools: list, fetch and extract runs from the bucket, surface videos, build a PDF | yes |
+| `bin/` | shell tools: list, fetch and extract runs from the bucket (on a GCP VM), surface videos, build a PDF | yes |
 | `src/` | the report scripts (Julia) and the observation fetchers and PDF helpers (Python) | yes |
 | `reports/<report>/` | one report's settings `report.toml` and its text `build_pdf.py` | yes |
 | `data/inputs/` | shared inputs, all at the stations: `observations/`, `norkyst_v3_stations/`, `norfjords_stations/` | no |
@@ -70,14 +70,43 @@ REPORT=<report> julia --project src/norkyst_columns.jl          # 5. NorKyst at 
 REPORT=<report> julia --project src/imr_norkyst.jl              #    NorKyst at the IMR stations
 REPORT=<report> julia --project src/norfjords_columns.jl        #    NorFjords at the stations
 REPORT=<report> julia --project src/imr_norfjords.jl            #    NorFjords at the IMR stations
-bin/extract_run.sh <report>               # 6. FjordSim columns from the 3D snapshots
+bin/vm_run.sh <report> extract            # 6. FjordSim columns from the 3D snapshots, on a GCP VM
 julia --project src/run_scripts.jl <report> stations.jl section.jl sill_exchange.jl \
     ctd.jl imr.jl hovmoller.jl analysis.jl map.jl              # 7. tables and figures
 #                                           8. reports/<report>/build_pdf.py (copy the last one, rewrite the text)
 bin/build_pdf.sh <report>                 # 9. output/<report>/<report>.pdf
 ```
 
-Steps 1 to 4 can come in any order. Step 6 is the slow one: it downloads about 7 GB per month of run.
+Steps 1 to 4 can come in any order. Step 6 is the slow one: the VM reads about 7 GB per month of run
+(below). Steps 2 and 3 copy from the bucket to this machine, about 0.25 GB and 0.7 GB.
+
+### On a GCP VM
+
+Copying out of the bucket costs about $0.12 per GB. A full run is ~175 GB of 3D snapshots and ~26 GB of
+surface snapshots, while the reports need only what is cut from them. `bin/vm_run.sh` therefore runs the
+snapshot steps on one of FjordSim's preprocessing VMs (`fjordsim-preprocessing-vm-eu-N`, in the bucket's
+region `europe-west4`, where reading the bucket is free) and copies down only the result:
+
+| Step | Reads on the VM | Copies down |
+|---|---|---|
+| `bin/vm_run.sh <report> extract` | `bin/extract_run.sh`: the 3D snapshots | `extract.jld2`, ~20 MB (live run: `extract_part<N>.jld2`) |
+| `bin/vm_run.sh <report> videos [--vm N] [parts...]` | `bin/surface_videos.sh`: the surface snapshots | the MP4s, ~50 MB a part |
+
+- **What it does:** it starts the VM with FjordSim's `gcp/fjordsim-gcp up --prep N` (job mode; the VM's
+  disk keeps what earlier steps left there). Then it ships the code and the small inputs the step reads,
+  installs Julia and the environment on first use (~15 min), and runs the step detached. It prints the
+  log's last line each minute, copies down the results this machine lacks, and powers the VM off.
+- **It survives this session.** The step runs on the VM. Running the same command again waits for it
+  and copies its result down; a finished step is started again cheaply, since the steps skip what is
+  done.
+- **Billing stops by itself.** A VM it started powers itself off after 10 idle minutes, and 30 minutes
+  after a step ends if nothing collected it. One step runs per VM. The videos take ~27 min a part, so
+  share the parts out with `--vm 1`, `--vm 2`, `--vm 3`.
+- **Needs** FjordSim.jl's `gcp/` (`FJORDSIM_GCP`, default `~/src/FjordSim.jl/gcp`) with its `config.env`, and
+  the rights of its job mode: executing the launch job and SSH with sudo on the VMs.
+
+`bin/extract_run.sh` and `bin/surface_videos.sh` also run here, where they copy every part to this
+machine.
 
 ### Videos
 
@@ -85,7 +114,7 @@ Videos go in `output/<report>/video/` and are not part of the PDF.
 
 ```bash
 REPORT=<report> julia --project src/section_video.jl [fps]   # the Drammensfjord section, one frame per day
-bin/surface_videos.sh <report> [part numbers...]             # surface T, S, elevation and currents per monthly part
+bin/vm_run.sh <report> videos [--vm N] [part numbers...]     # surface T, S, elevation and currents per monthly part
 ```
 
 - **Section video:** made from the run's hourly section file (`stations_section_<tag>.nc`) and the D-2
@@ -94,7 +123,7 @@ bin/surface_videos.sh <report> [part numbers...]             # surface T, S, ele
 - **Surface videos:** made by `src/surface_videos.jl` from the surface snapshot parts
   (`snapshots_surface_<tag>_part<N>.jld2`). It is copied from FjordSim's `scripts/surface_videos.jl`, but
   takes the run's `bathymetry.nc` and `report.toml`'s `run_start` instead of the run's setup file. Each part
-  is about 1 GB and is pulled, drawn and deleted in turn, taking about 27 min.
+  is about 1.1 GB and is pulled, drawn and deleted in turn on the VM, taking about 27 min.
 
 ### `report.toml`
 
@@ -141,8 +170,10 @@ imr_casts = "imr_ctd_2024-2026"
 | `niva_ctd_odm2_2024-2026/` | NIVA's CTD casts | `uv run src/odm2_fetch.py`, from NIVA's ODM2 database |
 | `imr_ctd_2024-2026/` | IMR's ØkoKyst and Tisler casts | `uv run src/imr_fetch.py`, from Vannmiljø |
 | `kartverket/` | sea level at Viker, Oscarsborg and Oslo, from 2020 on | FjordSim's `download_observations` |
+| `niva_ferrybox_2024-2026/` | FerryBox tracks of MS Color Fantasy and MS Color Hybrid, 4 m, one row a minute | `uv run src/ferrybox_fetch.py`, from NIVA's FerryBox API; not in the bucket |
 
-Both Python fetchers need their API keys in `~/.config/niva-data/`. Kartverket's monthly files are read by
+The Python fetchers need their API keys in `~/.config/niva-data/`; `ferrybox_fetch.py` signs in with NIVA's
+service account, `niva-service-account.json`. Kartverket's monthly files are read by
 `kartverket_series` in `src/tides.jl`.
 
 ## Origin
