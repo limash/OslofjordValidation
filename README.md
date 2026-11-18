@@ -72,8 +72,8 @@ REPORT=<report> julia --project src/imr_norkyst.jl              #    NorKyst at 
 REPORT=<report> julia --project src/norfjords_columns.jl        #    NorFjords at the stations
 REPORT=<report> julia --project src/imr_norfjords.jl            #    NorFjords at the IMR stations
 bin/vm_run.sh <report> extract            # 6. FjordSim columns from the 3D snapshots, on a GCP VM
-julia --project src/run_scripts.jl <report> stations.jl section.jl sill_exchange.jl \
-    ctd.jl imr.jl hovmoller.jl analysis.jl map.jl              # 7. tables and figures
+julia --project src/run_scripts.jl <report> stations.jl section.jl sill_exchange.jl svelvik.jl \
+    ctd.jl imr.jl boundary.jl hovmoller.jl analysis.jl map.jl  # 7. tables and figures
 #                                           8. reports/<report>/build_html.py (copy the last one, rewrite the text)
 bin/build_html.sh <report>                # 9. output/<report>/<report>.html
 ```

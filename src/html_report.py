@@ -88,6 +88,7 @@ class Page:
         self.title, self.meta = title, meta
         self.number = {key: n + 1 for n, key in enumerate(figures)}
         self.body, self.sections = [], []
+        self.sub, self.sub_of = 0, 0
 
     def fig(self, key):
         return f'<a href="#fig-{key}">Fig. {self.number[key]}</a>'
@@ -99,6 +100,12 @@ class Page:
         self.body.append(f'<h2 id="{anchor}">{f"{n}. " if numbered else ""}{text}</h2>')
 
     def h3(self, text):
+        """A subsection, numbered within a numbered section (3.1, 3.2, ...)."""
+        if self.sections and self.sections[-1][2]:
+            n = sum(1 for *_, num in self.sections if num)
+            self.sub = self.sub + 1 if self.sub_of == n else 1
+            self.sub_of = n
+            text = f"{n}.{self.sub} {text}"
         self.body.append(f"<h3>{text}</h3>")
 
     def p(self, text):

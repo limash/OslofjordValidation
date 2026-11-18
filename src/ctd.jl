@@ -221,6 +221,31 @@ for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(ALL_MODELS)
 end
 save(joinpath(FIG, "ctd_bias.png"), fig, px_per_unit = 1.2)
 
+# Bias by month and depth band over every station, one panel per model on every sample it reaches, as the
+# NorKyst v3 description (Christensen et al., 2026, Figs. 3-6) shows its own.
+months = sort(unique(Date(year(p.time), month(p.time)) for p in scored))
+monthly_rows = String[]
+fig = Figure(size = (1900, 1000))
+for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(ALL_MODELS)
+    B = fill(NaN, length(months), length(bnames))
+    for (i, m) in enumerate(months), (j, b) in enumerate(bnames)
+        _, lo, hi = bands[j]
+        x = score(filter(p -> Date(year(p.time), month(p.time)) == m && lo <= p.depth < hi, scored), var, (k,))
+        isnothing(x) && continue
+        B[i, j] = x[3][1][1]
+        push!(monthly_rows, @sprintf("%s,%s,%s,%s,%d,%.2f,%.2f", k, var, b, Dates.format(m, "yyyy-mm"), x[1], x[3][1]...))
+    end
+    lim = var == "S" ? 4.0 : 2.0
+    ax = Axis(fig[r, c], title = "$(LABELS[k]), $(var == "S" ? "salinity" : "temperature")", yreversed = true,
+        yticks = (1:length(bnames), bnames), yticklabelsvisible = c == 1,
+        xticks = (1:3:length(months), Dates.format.(months[1:3:end], "u yy")), xticklabelrotation = π / 4)
+    hm = heatmap!(ax, 1:length(months), 1:length(bnames), B, colormap = :balance, colorrange = (-lim, lim), nan_color = :gray92)
+    c == length(ALL_MODELS) && Colorbar(fig[r, c + 1], hm,
+        label = var == "S" ? "model − observed salinity (g/kg)" : "model − observed temperature (°C)")
+end
+save(joinpath(FIG, "ctd_bias_monthly.png"), fig, px_per_unit = 1.2)
+writecsv(joinpath(TABLES, "ctd_bias_monthly.csv"), "model,variable,band,month,n,bias,rmse", monthly_rows)
+
 # Scatter, each model on the samples it reaches, coloured by region. Region colours stay apart from the models'
 # (`COLORS`), so a point's colour is never read as a model; the regions with fewest samples are drawn last.
 region_colors = (("Inner Oslofjord", :goldenrod), ("Outer fjord", :gray35), ("Drammensfjord", :crimson))

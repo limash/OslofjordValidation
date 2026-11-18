@@ -137,6 +137,50 @@ for g in gauges
 end
 writecsv(joinpath(TABLES, "waterlevel.csv"), "model,station,n,mean_offset_m,r_total,crmse_total_m,r_residual,rmse_residual_m,std_ratio_residual,obs_max_above_mean_m,model_max_above_mean_m", rows)
 
+# The weather-driven water level scored in 5-day windows with Duveiller et al.'s (2016) λ, as Dalsøren et al.
+# (2020) score fjord currents: λ is the correlation r lowered for any bias in mean or variance, 0 where r < 0.
+# A window is good at λ ≥ 0.05 (their λcrit); below that it is poor when the model's mean anomaly over the window
+# has the wrong sign (their "transport in the wrong direction"), else medium. Each series is taken minus its
+# mean over the whole window, so a window's offset counts. Windows with under 90 % of their samples are skipped.
+"Duveiller et al.'s (2016) λ of model `x` against observed `y`."
+function lambda(x, y)
+    r = cor(x, y)
+    κ = r >= 0 ? 0.0 : 2abs(mean((x .- mean(x)) .* (y .- mean(y))))
+    return max(0.0, 1 - mean((x .- y) .^ 2) / (var(x, corrected = false) + var(y, corrected = false) + (mean(x) - mean(y))^2 + κ))
+end
+const LAMBDA_CRIT = 0.05
+lambda_rows = String[]
+for g in gauges
+    L = level[g.name]
+    for (name, t, o, m, per_window) in (("FjordSim", L.t, L.ro .- mean(L.ro), L.rm .- mean(L.rm), 720),
+                                         ("NorKyst $(replace(L.grid, "m" => " m"))", L.tn, L.ron .- mean(L.ron), L.rn .- mean(L.rn), 120))
+        for w0 in SPINUP:Day(5):(STOP - Day(5))
+            sel = findall(x -> w0 <= x < w0 + Day(5), t)
+            length(sel) >= 0.9per_window || continue
+            λ = lambda(m[sel], o[sel])
+            class = λ >= LAMBDA_CRIT ? "good" : (sign(mean(m[sel])) != sign(mean(o[sel])) ? "poor" : "medium")
+            push!(lambda_rows, @sprintf("%s,%s,%s,%.3f,%.3f,%.3f,%.3f,%s", name, g.name, Date(w0), λ, cor(m[sel], o[sel]),
+                std(m[sel]) / std(o[sel]), std(o[sel]), class))
+        end
+    end
+end
+writecsv(joinpath(TABLES, "waterlevel_lambda.csv"), "model,station,window_start,lambda,r,std_ratio,obs_std_m,class", lambda_rows)
+fig = Figure(size = (1500, 900))
+for (n, g) in enumerate(gauges)
+    ax = Axis(fig[n, 1], title = "$(g.name): λ of the weather-driven water level in 5-day windows", ylabel = "λ",
+        xlabel = n == length(gauges) ? DAYS_LABEL : "")
+    for name in unique(split(r, ",")[1] for r in lambda_rows)
+        rs = [split(r, ",") for r in lambda_rows if startswith(r, name * ",") && split(r, ",")[2] == g.name]
+        key = name == "FjordSim" ? "fjordsim" : norkyst_key(replace(split(name)[2], " " => ""))
+        scatterlines!(ax, days_since_start.(DateTime.(getindex.(rs, 3))) .+ 2.5, parse.(Float64, getindex.(rs, 4)),
+            color = COLORS[key], markersize = 7, label = name)
+    end
+    hlines!(ax, LAMBDA_CRIT, color = :black, linestyle = :dash)
+    ylims!(ax, 0, 1)
+    n == 1 && axislegend(ax, position = :lb)
+end
+save(joinpath(FIG, "waterlevel_lambda.png"), fig, px_per_unit = 1.3)
+
 fig = Figure(size = (1500, 520))
 for (n, g) in enumerate(gauges)
     ax = Axis(fig[1, n], title = g.name, ylabel = n == 1 ? "amplitude (cm)" : "", xticks = (1:length(consts), consts))
