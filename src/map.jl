@@ -67,6 +67,13 @@ open(joinpath(TABLES, "sills.csv"), "w") do io
     println(io, "sill,model_m,real_m")
     for (n, d, r) in sills; println(io, "$n,$(round(d, digits=1)),$r"); end
 end
+# Wet columns and wet cells of the model grid: a cell is wet where its top face is above the column's bottom.
+z_faces = NCDataset(ds -> Float64.(ds["z_faces"][:]), joinpath(RUN_SETUP, "bathymetry.nc"))
+nz = length(z_faces) - 1
+open(joinpath(TABLES, "grid_cells.csv"), "w") do io
+    println(io, "nx,ny,nz,wet_columns,wet_cells")
+    println(io, join((length(lon), length(lat), nz, count(<(0), h), sum(count(>(x), z_faces[2:end]) for x in h if x < 0)), ","))
+end
 open(joinpath(TABLES, "station_depths.csv"), "w") do io
     println(io, "type,name,lon,lat,model_water_depth,moved_m")
     for s in ctd

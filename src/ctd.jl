@@ -255,6 +255,78 @@ for (c, k) in enumerate(ALL_MODELS)
 end
 save(joinpath(FIG, "stratification.png"), fig, px_per_unit = 1.3)
 
+# Taylor and target diagrams, per depth band: FjordSim beside each reference model on the samples both reach.
+"Samples, observed and modelled standard deviation, correlation, centred RMSE and bias of model `k` on `ps`."
+function pattern_stats(ps, var, k)
+    o = [val(p, "obs", var) for p in ps]; m = [val(p, k, var) for p in ps]
+    so, sm = std(o, corrected = false), std(m, corrected = false)
+    bias = mean(m) - mean(o)
+    return (n = length(ps), obs_std = so, model_std = sm, r = cor(o, m), crmse = sqrt(max(0, mean((m .- o) .^ 2) - bias^2)), bias)
+end
+taylor = []
+for k in REFERENCES, var in ("S", "T"), (b, lo, hi) in bands[1:4]
+    ps = filter(p -> lo <= p.depth < hi && all(m -> isfinite(val(p, m, var)), ("obs", "fjordsim", k)), scored)
+    length(ps) < 3 && continue
+    for m in ("fjordsim", k)
+        push!(taylor, (reference = k, model = m, var, band = b, pattern_stats(ps, var, m)...))
+    end
+end
+writecsv(joinpath(TABLES, "taylor_target.csv"), "reference,model,variable,band,n,obs_std,model_std,correlation,centred_rmse,bias",
+    [@sprintf("%s,%s,%s,%s,%d,%.3f,%.3f,%.3f,%.3f,%.3f", x.reference, x.model, x.var, x.band, x.n, x.obs_std, x.model_std, x.r, x.crmse, x.bias)
+     for x in taylor])
+band_markers = Dict(zip(first.(bands[1:4]), (:circle, :rect, :utriangle, :diamond)))
+"The top legend of both diagrams: the models by colour, the depth bands by marker."
+function pattern_legend(fig)
+    Legend(fig[0, 1:length(REFERENCES)],
+        [[MarkerElement(color = COLORS[k], marker = :circle, markersize = 14) for k in ALL_MODELS];
+         [MarkerElement(color = :gray40, marker = band_markers[b], markersize = 14) for b in first.(bands[1:4])]],
+        [[LABELS[k] for k in ALL_MODELS]; first.(bands[1:4])], orientation = :horizontal, framevisible = false, nbanks = 1)
+end
+# One panel per variable and reference model: the reference model and FjordSim on the samples both reach.
+function pattern_panels(fig, place)
+    for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(REFERENCES)
+        xs = filter(x -> x.reference == k && x.var == var, taylor)
+        isempty(xs) && continue
+        ax, point = place(fig[r, c], "$(var == "S" ? "Salinity" : "Temperature"): FjordSim and $(LABELS[k])")
+        for x in xs
+            scatter!(ax, [point(x)[1]], [point(x)[2]], color = COLORS[x.model], marker = band_markers[x.band], markersize = 16,
+                strokecolor = :black, strokewidth = 0.6)
+        end
+    end
+end
+
+# Taylor: angle arccos(r), radius σ_model/σ_obs; the distance to the star is the centred RMSE / σ_obs (dashed arcs).
+fig = Figure(size = (1700, 1250))
+pattern_legend(fig)
+pattern_panels(fig, (pos, title) -> begin
+    ax = PolarAxis(pos; title, thetalimits = (0, π / 2), rlimits = (0, 1.75), rticks = 0:0.25:1.75,
+        thetaticks = (acos.([1.0, 0.99, 0.95, 0.9, 0.8, 0.6, 0.4, 0.2, 0.0]), ["1", "0.99", "0.95", "0.9", "0.8", "0.6", "0.4", "0.2", "0"]))
+    for e in (0.25, 0.5, 0.75, 1.0)
+        φ = range(0, π, length = 200)
+        x, y = 1 .+ e .* cos.(φ), e .* sin.(φ)
+        lines!(ax, atan.(y, x), hypot.(x, y), color = :gray70, linestyle = :dash, linewidth = 1)
+    end
+    lines!(ax, range(0, π / 2, length = 100), ones(100), color = :gray40, linewidth = 1)
+    scatter!(ax, [0.0], [1.0], marker = :star5, markersize = 22, color = :black)
+    (ax = ax, point = x -> (acos(clamp(x.r, -1, 1)), x.model_std / x.obs_std))
+end)
+save(joinpath(FIG, "taylor.png"), fig, px_per_unit = 1.2)
+
+# Target: x = sign(σ_model − σ_obs) × centred RMSE / σ_obs, y = bias / σ_obs; the distance to the origin is RMSE / σ_obs.
+fig = Figure(size = (1700, 1250))
+pattern_legend(fig)
+pattern_panels(fig, (pos, title) -> begin
+    ax = Axis(pos; title, aspect = 1, xlabel = "sign(σ_model − σ_obs) × centred RMSE / σ_obs", ylabel = "bias / σ_obs")
+    φ = range(0, 2π, length = 200)
+    for e in (0.5, 1.0)
+        lines!(ax, e .* cos.(φ), e .* sin.(φ), color = :gray60, linestyle = :dash, linewidth = 1)
+    end
+    hlines!(ax, 0, color = :gray85); vlines!(ax, 0, color = :gray85)
+    limits!(ax, -1.75, 1.75, -1.75, 1.75)
+    (ax = ax, point = x -> ((x.model_std >= x.obs_std ? 1 : -1) * x.crmse / x.obs_std, x.bias / x.obs_std))
+end)
+save(joinpath(FIG, "target.png"), fig, px_per_unit = 1.2)
+
 # Deep water through the run: FjordSim and the reference models daily, observations on the cast days.
 picks = [("VAL-1", 100.0), ("MO-2", 80.0), ("D-2", 50.0), ("D-2", 100.0), ("D-3", 50.0), ("Im2", 100.0), ("Fl1", 100.0),
          ("Dk1", 60.0), ("Ep1", 60.0), ("Ep1", 120.0)]

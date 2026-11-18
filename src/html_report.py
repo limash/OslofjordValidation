@@ -25,6 +25,7 @@ p, li { max-width: 46rem; }
 a { color: var(--accent); }
 .meta { color: var(--muted); margin: 0 0 1.2rem; }
 nav.toc { background: var(--soft); border-radius: 6px; padding: .7rem 1rem; font-size: .95rem; }
+nav.toc ul.plain { margin: .2rem 0; padding-left: 1.3rem; list-style: none; }
 nav.toc ol { margin: .2rem 0; padding-left: 1.3rem; }
 figure { margin: 1.4rem 0 1.8rem; }
 figure img, figure video { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; }
@@ -91,9 +92,11 @@ class Page:
     def fig(self, key):
         return f'<a href="#fig-{key}">Fig. {self.number[key]}</a>'
 
-    def h2(self, anchor, text):
-        self.sections.append((anchor, text))
-        self.body.append(f'<h2 id="{anchor}">{len(self.sections)}. {text}</h2>')
+    def h2(self, anchor, text, numbered=True):
+        """A section; an unnumbered one stays out of the count and heads the contents list."""
+        self.sections.append((anchor, text, numbered))
+        n = sum(1 for *_, num in self.sections if num)
+        self.body.append(f'<h2 id="{anchor}">{f"{n}. " if numbered else ""}{text}</h2>')
 
     def h3(self, text):
         self.body.append(f"<h3>{text}</h3>")
@@ -139,11 +142,14 @@ class Page:
                          f'<video controls preload="metadata" src="{first}"></video>{self._caption(key, caption)}</figure>')
 
     def write(self, path):
-        toc = "".join(f'<li><a href="#{a}">{t}</a></li>' for a, t in self.sections)
+        link = lambda a, t: f'<a href="#{a}">{t}</a>'  # noqa: E731
+        plain = "".join(f"<li>{link(a, t)}</li>" for a, t, num in self.sections if not num)
+        toc = ("".join(f"<ul class=plain>{plain}</ul>" for _ in [0] if plain)
+               + "<ol>" + "".join(f"<li>{link(a, t)}</li>" for a, t, num in self.sections if num) + "</ol>")
         Path(path).write_text(
             f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
             f"<title>{self.title}</title><style>{CSS}</style></head><body><main>"
             f'<h1>{self.title}</h1><p class="meta">{self.meta}</p>'
-            f'<nav class="toc"><ol>{toc}</ol></nav>' + "\n".join(self.body) +
+            f'<nav class="toc">{toc}</nav>' + "\n".join(self.body) +
             f"</main><script>{SWITCH_JS}</script></body></html>\n")

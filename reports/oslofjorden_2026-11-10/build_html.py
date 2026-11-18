@@ -127,12 +127,18 @@ missed = [float(r["obs"]) - float(r["fjordsim"]) for r in drift if (r["station"]
 dk1_feb = next(r for r in drift if r["station"] == "Dk1" and r["depth"] == "60" and r["variable"] == "S" and r["date"][:7] == "2026-02")
 
 strat = {k: {r["group"]: r for r in read(f"stratification_skill_{k}.csv")} for k in REFERENCES}
+# Taylor and target statistics per depth band: FjordSim (m = "fjordsim") or reference model m = k on k's samples.
+pattern = {(r["reference"], r["model"], r["variable"], r["band"]): r for r in read("taylor_target.csv")}
+corr = lambda k, m, v, b: float(pattern[(k, m, v, b)]["correlation"])  # noqa: E731
+sd_ratio = lambda k, m, v, b: float(pattern[(k, m, v, b)]["model_std"]) / float(pattern[(k, m, v, b)]["obs_std"])  # noqa: E731
+norm_bias = lambda k, m, v, b: float(pattern[(k, m, v, b)]["bias"]) / float(pattern[(k, m, v, b)]["obs_std"])  # noqa: E731
 tides = {(r["station"], r["constituent"]): r for r in read("tides.csv")}
 tides_nf = {(r["station"], r["constituent"]): r for r in read("tides_norfjords_2024.csv")}
 level = read("waterlevel.csv")
 level_daily = read("waterlevel_daily.csv")
 sill = {r["depth_m"]: r for r in read("sill_exchange.csv") if r["station"] == "DS-53"}
 sills = read("sills.csv")
+grid_cells = read("grid_cells.csv")[0]
 
 # Surface videos: video/surface/<stem>_part<N>_<variable>.mp4, part N being the run's Nth month.
 VARIABLES = (("temperature", "Temperature"), ("salinity", "Salinity"), ("elevation", "Sea level"), ("currents", "Currents"))
@@ -149,7 +155,7 @@ def month_of(part):
 sources = {label: {month_of(part_of(p)): f"video/surface/{p.name}" for p in videos if p.stem.endswith("_" + v)}
            for v, label in VARIABLES}
 
-FIGURES = ["map", "surface", "scatter", "bias", "stratification", "surface_drift", "basin_drift", "profiles", "section",
+FIGURES = ["map", "surface", "scatter", "taylor", "target", "bias", "stratification", "surface_drift", "basin_drift", "profiles", "section",
            "tide", "residual"]
 page = Page("Validation of FjordSim's Oslofjord simulation",
             f"Run {CONFIG['run']} (tag {STAMP}) · NIVA casts, Kartverket tide gauges, NorKyst v3 and NorFjords",
@@ -157,15 +163,26 @@ page = Page("Validation of FjordSim's Oslofjord simulation",
 F = page.fig
 
 # ================================================================================================================
+page.h2("surface", "Modelled surface fields", numbered=False)
+page.video_switch("surface", sources, [month_of(p) for p in parts],
+                  f"Hourly surface temperature, salinity, sea level and currents, "
+                  f"{month_of(parts[0])}{'' if len(parts) == 1 else ' to ' + month_of(parts[-1])}.")
+
+# ================================================================================================================
 page.h2("simulation", "The simulation")
-page.p(f"FjordSim builds and runs fjord models with Oceananigans, a hydrostatic ocean model that runs on GPUs. "
+page.p(f'<a href="https://github.com/NIVANorge/FjordSim.jl">FjordSim</a> builds and runs fjord models with '
+       f'<a href="https://github.com/CliMA/Oceananigans.jl">Oceananigans</a>, a hydrostatic ocean model that runs on GPUs (<a href="#references">Ramadhan et al., 2020</a>). '
        f"This run covers the Oslofjord from the Skagerrak to Oslo ({F('map')}) for two years.")
 page.table(["", "Setting"], [
     ["Period", f"{START} to {STOP[:10]}. Scores start on {SPINUP}: the first month is the adjustment from the initial state."],
     ["Domain", "10.00–11.20 °E, 58.95–59.93 °N. One open boundary, along the southern edge."],
     ["Horizontal grid", "424 × 681 cells of 160 m, longitude–latitude."],
-    ["Vertical grid", "39 z-levels to 467 m. 1 m at the surface, growing by 1.25 per level to at most 33.5 m; 5.06 m "
-                      "between 41 and 132 m. Partial bottom cells."],
+    ["Vertical grid", "39 z-levels, partial bottom cells. Layer interfaces (m): 0, 1, 2.2, 3.7, 5.5, 7.9, 10.8, 14.5, 19, "
+                      "25, 32, 41, 46.06, 51.11, 56.17, 61.22, 66.28, 71.33, 76.39, 81.44, 86.5, 91.56, 96.61, 101.67, "
+                      "106.72, 111.78, 116.83, 121.89, 126.94, 132, 165.5, 199, 232.5, 266, 299.5, 333, 366.5, 400, "
+                      "433.5, 467."],
+    ["Cells", f"{int(grid_cells['nx']) * int(grid_cells['ny']) * int(grid_cells['nz']):,} in total, "
+              f"{int(grid_cells['wet_cells']):,} of them water ({int(grid_cells['wet_columns']):,} water columns)."],
     ["Bathymetry", f"Kartverket's soundings (Geonorge Dybdedata), gridded at 40 m. Minimum depth 2 m, slopes limited, "
                    f"sills kept: Drøbak {sills[0]['model_m']} m (real {sills[0]['real_m'].split(' ')[0]} m), "
                    f"Svelvik {sills[1]['model_m']} m (real 11 m)."],
@@ -191,7 +208,7 @@ page.table(["", "Setting"], [
                       "run (m00) elsewhere."],
     ["Output", "Daily 3D T, S, u, v and TKE; hourly surface fields; hourly profiles at 12 stations and at 77 points "
                "along the Drammensfjord; sea level every 10 min at 3 gauges."],
-    ["Cost", f"{WALL_DAYS:.1f} days on one GPU."],
+    ["Cost", f"{WALL_DAYS:.1f} days on one NVIDIA L4 GPU."],
 ], caption="<b>Table 1.</b> Model setup.")
 page.p("At 160 m the Svelvik strait (180 m wide) is one cell wide, and the openings in the Drøbak jetty (about 6 m deep, "
        "tens of metres wide) do not exist in the model.")
@@ -199,12 +216,6 @@ page.figure("map", "figures/map.png",
             "Model depth and the stations. Green circles: NIVA cast stations (filled where the run writes hourly "
             "profiles); squares: tide gauges; blue triangles: river inflow columns; red line: open boundary. "
             "Orange diamonds: IMR stations, not used here.", fit=True)
-
-# ================================================================================================================
-page.h2("surface", "Surface fields")
-page.video_switch("surface", sources, [month_of(p) for p in parts],
-                  f"Hourly surface temperature, salinity, sea level and currents, "
-                  f"{month_of(parts[0])}{'' if len(parts) == 1 else ' to ' + month_of(parts[-1])}.")
 
 # ================================================================================================================
 page.h2("data", "Validation data")
@@ -249,10 +260,8 @@ page.table(["", "FjordSim", "NorKyst v3 160 m", "NorKyst v3 800 m", "NorFjords 1
     ["NIVA stations here", f"{len(scored)}", f"{len(on_160)}", f"{len(on_800)}", f"{len(on_nf)}"],
 ], caption="<b>Table 3.</b> The four models. *The NorKyst v3 description gives one system, not the 160 m "
             "nest's settings apart.")
-page.p('Sources: <a href="https://doi.org/10.5194/gmd-19-2785-2026">Christensen et al. (2026)</a> for NorKyst v3; '
-       "NorFjords' archive metadata and IMR's "
-       '<a href="https://www.hi.no/en/hi/nettrapporter/rapport-fra-havforskningen-2022-35">NorKyst800 report</a> '
-       "for NorFjords.")
+page.p('Sources: <a href="#references">Christensen et al. (2026)</a> for NorKyst v3; NorFjords\' archive metadata and '
+       '<a href="#references">Albretsen et al. (2022)</a> for NorFjords.')
 
 basins = (("Bunnefjorden", "Ep1"), ("Vestfjorden", "Fl1"), ("Steilene", "Dk1"), ("Drøbak Sound", "Im2"), ("Drammensfjord", "D-2"))
 page.table(["Basin (station)", "Deepest cast", "FjordSim", "NorKyst v3 160 m", "NorFjords 160 m"],
@@ -304,6 +313,38 @@ page.p(f"Only FjordSim reproduces the brackish surface water of the Drammensfjor
        f"5 m the salinity bias is {signed(skill('norkyst160', 'S', '0-5 m', dr)['fjordsim_bias'], 1)} g/kg in FjordSim, NorKyst v3 "
        f"160 m {signed(skill('norkyst160', 'S', '0-5 m', dr)['norkyst160_bias'], 1)} and NorFjords "
        f"{signed(skill('norfjords', 'S', '0-5 m', dr)['norfjords_bias'], 1)} g/kg.")
+
+page.h3("Taylor and target diagrams")
+page.p(f"Both diagrams (<a href=\"#references\">Taylor, 2001</a>; <a href=\"#references\">Jolliff et al., 2009</a>) score each depth band, FjordSim beside one reference model on the samples both have. Every "
+       f"statistic is divided by the observed standard deviation σ_obs of those samples. In the Taylor diagram "
+       f"({F('taylor')}) the angle is the correlation r and the radius σ_model/σ_obs. The distance to the star "
+       f"(the observations) is the centred RMSE, the RMSE with the bias removed. In the target diagram ({F('target')}) "
+       f"the vertical axis is the bias, the horizontal one the centred RMSE, negative where the model varies less "
+       f"than observed. The distance to the origin is the RMSE; inside the unit circle a model beats the observed mean.")
+top = "0-5 m"
+page.p(f"In salinity's top 20 m FjordSim correlates as well as NorKyst v3 160 m and better than the others, with nearly "
+       f"the observed variability. At 0–5 m its r is "
+       f"{span([corr(k, 'fjordsim', 'S', top) for k in REFERENCES], 2)} against {plain(corr('norkyst160', 'norkyst160', 'S', top))} "
+       f"(NorKyst v3 160 m), {plain(corr('norkyst800', 'norkyst800', 'S', top))} (800 m) and "
+       f"{plain(corr('norfjords', 'norfjords', 'S', top))} (NorFjords). Its σ_model/σ_obs is "
+       f"{span([sd_ratio(k, 'fjordsim', 'S', top) for k in REFERENCES], 2)}; the reference models' are "
+       f"{plain(sd_ratio('norkyst160', 'norkyst160', 'S', top))}, {plain(sd_ratio('norkyst800', 'norkyst800', 'S', top))} and "
+       f"{plain(sd_ratio('norfjords', 'norfjords', 'S', top))}: they smooth the surface salinity. Below 50 m NorFjords "
+       f"correlates better ({plain(corr('norfjords', 'norfjords', 'S', '>50 m'))} against "
+       f"{plain(corr('norfjords', 'fjordsim', 'S', '>50 m'))}).")
+deep_sd = [sd_ratio(k, m, "T", ">50 m") for k in REFERENCES for m in ("fjordsim", k)]
+page.p(f"In temperature NorKyst v3 160 m correlates better than FjordSim in every band, most below 50 m "
+       f"({plain(corr('norkyst160', 'norkyst160', 'T', '>50 m'))} against {plain(corr('norkyst160', 'fjordsim', 'T', '>50 m'))}). "
+       f"Below 50 m every model varies too much (σ_model/σ_obs {span(deep_sd, 2)}). There FjordSim's bias is "
+       f"{plain(norm_bias('norfjords', 'fjordsim', 'T', '>50 m'))} σ_obs, NorFjords' "
+       f"{plain(norm_bias('norfjords', 'norfjords', 'T', '>50 m'))}, on the same samples.")
+page.figure("taylor", "figures/taylor.png",
+            "Taylor diagrams: salinity (top), temperature (bottom); each column FjordSim and one reference model on "
+            "the samples both have. Marker: depth band. Angle: correlation; radius: σ_model/σ_obs; dashed arcs: "
+            "centred RMSE / σ_obs; star: observations.")
+page.figure("target", "figures/target.png",
+            "Target diagrams, same layout. Vertical: bias / σ_obs; horizontal: centred RMSE / σ_obs, negative where "
+            "the model varies less than observed. Dashed circles: RMSE / σ_obs of 0.5 and 1.")
 
 page.h3("Bias by station and depth")
 off_deep = [(s, b) for s in scored for b in (station_band("fjordsim", s, "S", 20, 50), station_band("fjordsim", s, "S", 50, 1e9))
@@ -436,6 +477,8 @@ page.items([
     f"NorFjords).",
     f"<b>Temperature:</b> NorKyst v3 160 m is better ({plain(t160['norkyst160_rmse'])} against "
     f"{plain(t160['fjordsim_rmse'])} °C); NorKyst v3 800 m and NorFjords are about even with FjordSim.",
+    f"<b>Variability:</b> FjordSim has the observed range of salinity in the top 5 m; the reference models smooth it. "
+    f"Below 50 m every model's temperature varies {span([(x - 1) * 100 for x in deep_sd], 0)} % too much.",
     "<b>Drammensfjord:</b> only FjordSim keeps the brackish surface layer and a halocline close to the observed one.",
     "<b>Surface salinity:</b> the top 20 m are too salty in every model, and no model has the Glomma plume.",
     f"<b>Inner basins:</b> FjordSim misses the February 2026 inflow and never renews Bunnefjorden; below 50 m they are "
@@ -449,6 +492,27 @@ page.items([
     f"<b>Sea level:</b> M2 within {m2_off:.1f} cm; {pct(fs)} % of the weather-driven variability, more than NorKyst v3 and less "
     f"than NorFjords.",
 ], ordered=True, cls="summary")
+
+# ================================================================================================================
+page.h2("references", "References")
+page.items([
+    'Albretsen, J., Sandvik, A. D., Asplin, L., Lien, V., Skardhamar, J. (2022). NorKyst800: versjoner og arkiver. '
+    '<i>Rapport fra havforskningen</i> 2022-35, Havforskningsinstituttet (Institute of Marine Research). '
+    '<a href="https://www.hi.no/en/hi/nettrapporter/rapport-fra-havforskningen-2022-35">hi.no</a>',
+    'Christensen, K. H., Albretsen, J., Asplin, L., Frøysa, H. G., Gusdal, Y., Iversen, S. C., Jensen, M. F., Johnsen, I. A., '
+    'Kristensen, N. M., Sævik, P. N., Sandvik, A. D., Simonsen, M., Skarðhamar, J., Sperrevik, A. K., Trodahl, M. (2026). '
+    '"Norkyst" version 3: the coastal ocean forecasting system for Norway. <i>Geoscientific Model Development</i>, 19, '
+    '2785–2798. <a href="https://doi.org/10.5194/gmd-19-2785-2026">doi:10.5194/gmd-19-2785-2026</a>',
+    'Jolliff, J. K., Kindle, J. C., Shulman, I., Penta, B., Friedrichs, M. A. M., Helber, R., Arnone, R. A. (2009). '
+    'Summary diagrams for coupled hydrodynamic-ecosystem model skill assessment. <i>Journal of Marine Systems</i>, 76(1–2), '
+    '64–82. <a href="https://doi.org/10.1016/j.jmarsys.2008.05.014">doi:10.1016/j.jmarsys.2008.05.014</a>',
+    'Ramadhan, A., Wagner, G. L., Hill, C., Campin, J.-M., Churavy, V., Besard, T., Souza, A., Edelman, A., Ferrari, R., '
+    'Marshall, J. (2020). Oceananigans.jl: Fast and friendly geophysical fluid dynamics on GPUs. <i>Journal of Open Source '
+    'Software</i>, 5(53), 2018. <a href="https://doi.org/10.21105/joss.02018">doi:10.21105/joss.02018</a>',
+    'Taylor, K. E. (2001). Summarizing multiple aspects of model performance in a single diagram. <i>Journal of Geophysical '
+    'Research: Atmospheres</i>, 106(D7), 7183–7192. <a href="https://doi.org/10.1029/2000JD900719">'
+    'doi:10.1029/2000JD900719</a>',
+])
 
 out = HERE / f"{HERE.name}.html"
 page.write(out)
