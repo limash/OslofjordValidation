@@ -12,8 +12,9 @@
 # the set-up), current speed with arrows, and from `--sea-ice` (`SeaIceSnapshotWriter`, same records) ice
 # thickness, concentration and snow depth. Any other variable gets a plain video of its own.
 #
-# Land is grey and a NaN in the water is magenta. A video's colour range is the 1st–99th percentile
-# of its wet values over the file, except the ice videos' fixed ranges, which let months compare.
+# Land is tan, with the main towns marked, and a NaN in the water is magenta. A video's colour range is
+# the 1st–99th percentile of its wet values over the file, except the ice videos' fixed ranges, which let
+# months compare.
 # Videos go beside the surface file unless `--out` is given.
 module SurfaceVideos
 
@@ -28,6 +29,21 @@ const COLOUR_RANGE_RECORDS = 50
 # Current arrows along the longer side of the grid. An arrow at the top of the colour range is one
 # arrow spacing long.
 const ARROWS_ACROSS = 40
+const LAND_COLOUR = "#b3a589"
+# Towns marked on every frame: name, longitude (°E), latitude (°N), and the side its name goes on, away
+# from the fjord.
+const TOWNS = (
+    ("Oslo", 10.752, 59.911, :right),
+    ("Drammen", 10.204, 59.744, :left),
+    ("Svelvik", 10.408, 59.611, :left),
+    ("Drøbak", 10.630, 59.663, :right),
+    ("Holmestrand", 10.313, 59.490, :left),
+    ("Horten", 10.483, 59.417, :left),
+    ("Moss", 10.658, 59.434, :right),
+    ("Tønsberg", 10.408, 59.267, :left),
+    ("Sandefjord", 10.217, 59.131, :left),
+    ("Fredrikstad", 10.930, 59.218, :right),
+)
 
 surface_field(files, name, iteration) = files.surface["timeseries/$name/$iteration"][:, :, 1]
 sea_ice_field(files, name, iteration) = files.sea_ice["timeseries/$name/$iteration"][:, :, 1]
@@ -164,7 +180,7 @@ function record_video(path, files, iterations, times, grid, video, title_prefix,
     M.limits!(axis, extrema(longitude)..., extrema(latitude)...)
     field = M.heatmap!(axis, longitude, latitude, values; colormap = video.colormap, colorrange,
                        nan_color = :magenta)
-    M.heatmap!(axis, longitude, latitude, ifelse.(land, 1.0f0, NaN32); colormap = [:gray70, :gray70],
+    M.heatmap!(axis, longitude, latitude, ifelse.(land, 1.0f0, NaN32); colormap = [LAND_COLOUR, LAND_COLOUR],
                colorrange = (0, 2), nan_color = :transparent)
     M.Colorbar(figure[1, 2], field; label = video.label)
 
@@ -173,6 +189,13 @@ function record_video(path, files, iterations, times, grid, video, title_prefix,
         arrows = M.Observable(directions(centred_velocities(files, first(iterations))...))
         M.arrows2d!(axis, positions, arrows; color = :black, shaftwidth = 1, tipwidth = 5, tiplength = 5)
     end
+
+    towns = [M.Point2f(lon, lat) for (_, lon, lat, _) in TOWNS]
+    M.scatter!(axis, towns; color = :black, markersize = 7)
+    M.text!(axis, towns; text = [name for (name, _, _, _) in TOWNS],
+            align = [(side == :left ? :right : :left, :center) for (_, _, _, side) in TOWNS],
+            offset = [(side == :left ? -6 : 6, 0) for (_, _, _, side) in TOWNS],
+            fontsize = 14, color = :black)
 
     M.record(figure, path, eachindex(iterations); framerate = FRAMES_PER_SECOND) do record
         values[] = video.values(files, iterations[record], wet)

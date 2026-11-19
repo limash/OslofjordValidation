@@ -409,8 +409,8 @@ sources = {
 }
 
 FIGURES = [
-    "map",
     "surface",
+    "map",
     "scatter",
     "taylor",
     "target",
@@ -534,7 +534,7 @@ page.table(
             "the whole run); hourly, because a Flather condition needs the tide in the sea level. Relaxation "
             "to the data in 3 h on inflow, 360 days on outflow; a 3.2 km sponge (viscosity 20, diffusivity "
             "10 m² s⁻¹) damps what the boundary radiates. Below 300 m the 300 m value: NorKyst's output stops "
-            f"there. The tide is scaled per constituent to the Viker gauge, as FjordOs did: NorKyst v3 800 m's "
+            f"there. The tide is scaled per constituent to the Viker gauge: NorKyst v3 800 m's "
             f"M2 at the boundary is {viker['norkyst800_boundary_cm']} cm against {viker['kartverket_obs_cm']} cm "
             "observed at Viker (M2 × 0.70).",
         ],
@@ -550,8 +550,7 @@ page.table(
         ],
         [
             "Sea ice",
-            "None. Temperature is held at or above the freezing point. A slab-ice test turned the heat deficits "
-            "of one-cell channels into ice that never melted.",
+            "None. Temperature is held at or above the freezing point.",
         ],
         [
             "Initial state",
@@ -568,15 +567,14 @@ page.table(
     caption="<b>Table 1.</b> Model setup.",
 )
 page.p(
-    "At 160 m the Svelvik strait (180 m wide) is one cell wide; FjordOs made it three cells and 345 m wide "
-    '(<a href="#references">Staalstrøm and Hjelmervik, 2017</a>). The openings in the Drøbak jetty (about 6 m deep, '
-    "tens of metres wide) do not exist in the model."
-)
-page.p(
     f"NORA3 overstates the solar radiation: it warmed NorKyst v3's summer surface by up to 0.7–0.8 °C in 2012–2020 "
     f'(<a href="#references">Christensen et al., 2026</a>). FjordSim\'s surface layer is not too warm in summer 2025 '
     f"(June to August: {', '.join(signed(x, 1) for x in summer25)} °C)."
 )
+
+# ================================================================================================================
+page.h2("data", "Validation data")
+page.h3("Observations")
 page.figure(
     "map",
     "figures/map.png",
@@ -585,10 +583,6 @@ page.figure(
     "red line: open boundary.",
     fit=True,
 )
-
-# ================================================================================================================
-page.h2("data", "Validation data")
-page.h3("Observations")
 page.table(
     ["Source", "What", "Period", "Size"],
     [
