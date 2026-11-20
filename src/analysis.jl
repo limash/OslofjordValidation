@@ -36,7 +36,8 @@ nk_levels = load(joinpath(REPORT_DATA, "norkyst_columns.jld2"), "levels")
 level = Dict{String,Any}()
 for g in gauges
     obs = kartverket_series(g.name, window)
-    mod = read_station_jld2(joinpath(RES, "stations_tidegauge_$(STAMP)_$(g.name).jld2"), "η", RUN_START)
+    mod = join_station_series([read_station_jld2(path, "η", RUN_START)
+                               for path in run_files("stations_tidegauge", "_$(g.name).jld2")])
     tt, o, mm = match_series(obs, mod; tolerance = Minute(5))
     ok = isfinite.(mm) .& isfinite.(o) .& (window[1] .<= tt .<= window[2]); tt, mm, o = tt[ok], mm[ok], o[ok]
     fo = harmonic_fit(tt, o; constituents = fit_set, reference = ref)

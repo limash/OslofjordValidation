@@ -145,6 +145,25 @@ function read_station_jld2(path, variable::AbstractString, reference::DateTime)
 end
 
 """
+    join_station_series(series)
+
+One station's `ModelSeries` from its files in written order. A resumed run writes under a new run tag from its
+checkpoint on, so each file replaces every earlier record from its own first time on.
+"""
+function join_station_series(series)
+    joined = first(series)
+    for next in series[2:end]
+        isempty(next.times) && continue
+        next.depths == joined.depths ||
+            throw(ArgumentError("Station $(next.station)'s files differ in depths, so they are not one run."))
+        keep = joined.times .< first(next.times)
+        joined = ModelSeries(joined.station, joined.variable, vcat(joined.times[keep], next.times), joined.depths,
+                             vcat(joined.values[keep, :], next.values), joined.metadata)
+    end
+    return joined
+end
+
+"""
     kartverket_series(name, window)
 
 A gauge's observed sea level over `window` in metres (on the datum the cache was fetched on, mean sea level),

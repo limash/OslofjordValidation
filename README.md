@@ -90,7 +90,7 @@ region `europe-west4`, where reading the bucket is free) and copies down only th
 
 | Step | Reads on the VM | Copies down |
 |---|---|---|
-| `bin/vm_run.sh <report> extract` | `bin/extract_run.sh`: the 3D snapshots | `extract.jld2`, ~20 MB (live run: `extract_part<N>.jld2`) |
+| `bin/vm_run.sh <report> extract` | `bin/extract_run.sh`: the 3D snapshots | `extract.jld2`, ~20 MB (live run: `extract_<tag>_part<N>.jld2`) |
 | `bin/vm_run.sh <report> videos [--vm N] [parts...]` | `bin/surface_videos.sh`: the surface snapshots | the MP4s, ~50 MB a part |
 
 - **What it does:** it starts the VM with FjordSim's `gcp/fjordsim-gcp up --prep N` (job mode; the VM's
@@ -138,7 +138,7 @@ niva_casts = "niva_ctd_odm2_2024-2026"  # folders in data/inputs/observations/
 imr_casts = "imr_ctd_2024-2026"
 profile_stations = ["VAL-1", "Im2", "D-2", "Dk1", "Ep1"]          # the page's profile figure: each station at
 profile_dates = [2025-12-10, 2026-03-18, 2026-06-26, 2026-08-14]  # its cast nearest each date (within 20 days)
-# stamp = "20261107T210205"             # only if data/runs/<run>/results holds more than one run log
+# stamp = "20261107T210205"             # one launch only; default: every run log in data/runs/<run>/results, joined
 ```
 
 `run_start` is the `start_date` of the `RunConfig` in the run's setup file, `data/runs/<run>/setup/`.

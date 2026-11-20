@@ -20,6 +20,25 @@ const ALL_MODELS = ("fjordsim", REFERENCES...)
 "The model key of a NorKyst grid as `norkyst_points.csv` writes it: \"160m\" is \"norkyst160\"."
 norkyst_key(grid) = "norkyst" * replace(grid, "m" => "")
 
+"""
+    read_joined(read, paths)
+
+The calendar times and `read(ds)`, an array with time as its last dimension, of one output's NetCDF files
+(`run_files`), joined along time. A resumed run's file replaces the earlier files' records from its first time on.
+"""
+function read_joined(read, paths)
+    parts = map(paths) do path
+        NCDataset(path) do ds
+            start = DateTime(ds.attrib["start_date"])
+            ([start + Millisecond(round(Int, 1000s)) for s in ds["time"][:]], read(ds))
+        end
+    end
+    keeps = [n == length(parts) ? eachindex(t) : findall(<(first(parts[n+1][1])), t) for (n, (t, _)) in enumerate(parts)]
+    times = reduce(vcat, t[k] for ((t, _), k) in zip(parts, keeps))
+    values = cat((selectdim(A, ndims(A), k) for ((_, A), k) in zip(parts, keeps))...; dims = ndims(parts[1][2]))
+    return times, values
+end
+
 stem(code) = replace(code, "Ø" => "O", r"[^A-Za-z0-9]" => "_")
 days_since_start(t) = Dates.value(DateTime(t) - START) / 86_400_000
 

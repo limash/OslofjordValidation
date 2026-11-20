@@ -23,7 +23,8 @@ for f in bathymetry.nc rivers_nve.nc; do
 done
 
 if [ ! -f "$setup/run_id" ]; then
-    stamp=$(ls "$results" | grep -o 'fjordsim_[0-9]\{8\}T[0-9]\{6\}\.log' | stamp_of || true)
+    # The newest tag: a resumed run's marker keeps only its last launch's log.
+    stamp=$(ls "$results" | grep -o 'fjordsim_[0-9]\{8\}T[0-9]\{6\}\.log' | grep -o '[0-9]\{8\}T[0-9]\{6\}' | tail -n 1 || true)
     id=$([ -n "$stamp" ] && run_id_of "$stamp" || true)
     if [ -z "$id" ] && [ "$run" = "$FJORD" ]; then
         running=$(running_ids)

@@ -1,0 +1,11 @@
+# The full-period report of the 2024-2026 run `oslofjorden-full-t-surface`, resumed once from a checkpoint.
+run = "oslofjorden_2026-11-20"          # data/runs/<run>, from gs://fjordsim/results/<run>/
+run_start = 2024-10-01T00:00:00         # the time origin of the run's station files
+start = 2024-10-01T00:00:00             # the window drawn
+spinup = 2024-11-01T00:00:00            # scored from here: October is the adjustment from the initial state
+stop = 2026-10-01T00:00:00
+niva_casts = "niva_ctd_odm2_2024-2026"  # folders in data/inputs/observations/
+imr_casts = "imr_ctd_2024-2026"
+# The report's profile figure: each station at its cast nearest each date (within 20 days).
+profile_stations = ["VAL-1", "Im2", "D-2", "Dk1", "Ep1"]
+profile_dates = [2025-12-10, 2026-03-18, 2026-06-26, 2026-08-14]

@@ -6,8 +6,9 @@ set_theme!(fontsize = 17)
 
 "Daily means of one variable at a station: day midpoints (days since START; the file starts at RUN_START), level faces as depths, matrix day × level."
 function daily(code, var)
-    NCDataset(joinpath(RES, "stations_hydrography_$(STAMP)_$(stem(code)).nc")) do ds
-        V = Float64.(coalesce.(ds[var][1, 1, :, :], NaN))
+    paths = run_files("stations_hydrography", "_$(stem(code)).nc")
+    _, V = read_joined(file -> Float64.(coalesce.(file[var][1, 1, :, :], NaN)), paths)
+    NCDataset(first(paths)) do ds
         V[Array(ds["inactive_nodes_ccc"][1, 1, :]) .!= 0, :] .= NaN
         hours = size(V, 2) - 1
         days = hours ÷ 24
@@ -16,7 +17,9 @@ function daily(code, var)
     end
 end
 
-stations = ["OF-1", "LA-1", "SF-1", "TØ-1", "Ø-1", "S-9", "OF-5", "MO-2", "D-3", "D-2", "Dk1", "Ep1"]
+# Sandefjord is SF-1 in the earlier runs and SF-3 from the 2026-11-20 run on: the stations the run wrote.
+stations = filter(s -> !isempty(run_files("stations_hydrography", "_$(stem(s)).nc")),
+                  ["OF-1", "LA-1", "SF-1", "SF-3", "TØ-1", "Ø-1", "S-9", "OF-5", "MO-2", "D-3", "D-2", "Dk1", "Ep1"])
 casts = niva_casts(START, STOP + Day(1))
 for (var, crange, contours, cmap, unit) in (("S", (20, 35.5), [30, 33], :haline, "g/kg"),
                                             ("T", (0, 22), [6, 12], :thermal, "°C"))

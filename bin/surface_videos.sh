@@ -5,7 +5,8 @@
 # and deleted; about 27 min per part. Parts whose videos exist are skipped; in the live run
 # (results/oslofjorden/) the last part is still being written and is left out.
 #
-#   bin/surface_videos.sh <report> [part numbers...]      (default: every part)
+#   bin/surface_videos.sh <report> [part numbers...]      (default: every part; a number names that part under
+#                                                         every run tag, since a resumed run writes under a new one)
 set -euo pipefail
 source "$(dirname "$0")/config.sh"
 report=$1; shift
@@ -15,15 +16,16 @@ out=$PROJECT/output/$report/video/surface
 mkdir -p "$out" "$runs/snapshots"
 script=$PROJECT/src/surface_videos.jl
 
-all=$(gcloud storage ls "$BUCKET/results/$run/snapshots_surface_*_part*.jld2" | sed -E 's/.*_part([0-9]+)\.jld2$/\1/' | sort -n)
+all=$(gcloud storage ls "$BUCKET/results/$run/snapshots_surface_*_part*.jld2" | written_order)
 last=$(echo "$all" | tail -n 1)
-for n in ${*:-$all}; do
-    if [ "$run" = "$FJORD" ] && [ "$n" = "$last" ]; then
-        echo "part $n is still being written"
+for source in $all; do
+    n=$(echo "$source" | sed -E 's/.*_part([0-9]+)\.jld2$/\1/')
+    [ $# -eq 0 ] || [[ " $* " == *" $n "* ]] || continue
+    stem=$(basename "$source" .jld2)
+    if [ "$run" = "$FJORD" ] && [ "$source" = "$last" ]; then
+        echo "$stem is still being written"
         continue
     fi
-    source=$(gcloud storage ls "$BUCKET/results/$run/snapshots_surface_*_part$n.jld2")
-    stem=$(basename "$source" .jld2)
     if ls "$out/${stem}_"*.mp4 > /dev/null 2>&1; then
         continue
     fi

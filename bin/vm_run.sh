@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The snapshot steps on one of FjordSim's preprocessing VMs, so that only their results come down from GCP.
 # The VM reads the bucket in its own region at no transfer cost; this machine gets the result:
-#   extract   bin/extract_run.sh there, and its extract.jld2 (or, for the live run, its extract_part<N>.jld2)
+#   extract   bin/extract_run.sh there, and its extract.jld2 (or, for the live run, its extract_<tag>_part<N>.jld2)
 #             back: ~20 MB instead of ~175 GB of 3D snapshots
 #   videos    bin/surface_videos.sh there, and its MP4s back: ~50 MB a part instead of ~1.1 GB
 # The VM gets the code and the few small inputs these steps read, installs Julia on first use and runs the
@@ -90,7 +90,7 @@ if [ -z "$current" ]; then
     cd "$PROJECT"
     files="Project.toml Manifest.toml bin src reports/$report data/runs/$run/setup/bathymetry.nc
            data/inputs/observations/$(toml_value "$report" niva_casts) data/inputs/observations/$(toml_value "$report" imr_casts)
-           $(ls data/runs/"$run"/results/fjordsim_*.log $data/cells_extract.csv $data/extract_part*.jld2 2>/dev/null || true)"
+           $(ls data/runs/"$run"/results/fjordsim_*.log $data/cells_extract.csv $data/extract_*_part*.jld2 2>/dev/null || true)"
     tar --exclude=__pycache__ -czf - $files | on_vm 'mkdir -p ~/oslofjord_validation && tar -xzf - -C ~/oslofjord_validation'
     on_vm "cat > ~/vm_run_$id.sh" <<EOF
 exec 9> ~/vm_run.lock

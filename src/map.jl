@@ -12,7 +12,7 @@ depth = map(x -> x < 0 ? -x : NaN, h)
 function stations(stem)
     out = []
     for f in sort(readdir(RES))
-        m = match(Regex("^$(stem)_$(STAMP)_(.+)\\.nc\$"), f)
+        m = match(Regex("^$(stem)_$(first(STAMPS))_(.+)\\.nc\$"), f)
         isnothing(m) && continue
         NCDataset(joinpath(RES, f)) do ds
             a = ds.attrib

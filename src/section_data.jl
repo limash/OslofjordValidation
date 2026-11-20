@@ -5,13 +5,13 @@ include("common.jl")
 
 # The section file has no grid faces or dry-cell mask; the faces are a hydrography station file's (the
 # same grid) and a level is dry where its top face lies below the station's model water depth.
-faces = NCDataset(ds -> -Float64.(ds["z_aaf"][:]), joinpath(RES, "stations_hydrography_$(STAMP)_D_2.nc"))
-sections = NCDataset(joinpath(RES, "stations_section_$(STAMP).nc")) do ds
-    start = DateTime(ds.attrib["start_date"])
-    times = [start + Millisecond(round(Int, 1000s)) for s in ds["time"][:]]
+faces = NCDataset(ds -> -Float64.(ds["z_aaf"][:]), first(run_files("stations_hydrography", "_D_2.nc")))
+section_files = run_files("stations_section", ".nc")
+sections = NCDataset(first(section_files)) do ds
+    read(var) = read_joined(file -> Float64.(coalesce.(file[var][:, :, :], NaN)), section_files)
+    times, T = read("T")
     keep = findall(t -> START <= t <= STOP, times)
-    read(var) = Float64.(coalesce.(ds[var][:, :, keep], NaN))
-    T, S, u, v = read("T"), read("S"), read("u"), read("v")
+    T, S, u, v = T[:, :, keep], read("S")[2][:, :, keep], read("u")[2][:, :, keep], read("v")[2][:, :, keep]
     names = ds["station_name"][:]; lon = Float64.(ds["model_longitude"][:]); lat = Float64.(ds["model_latitude"][:])
     depth = Float64.(ds["model_water_depth"][:])
     map(eachindex(names)) do n

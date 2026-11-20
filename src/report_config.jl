@@ -16,14 +16,20 @@ const TABLES = joinpath(REPORT, "tables")
 const REPORT_DATA = joinpath(REPORT, "data")
 foreach(mkpath, (FIG, TABLES, REPORT_DATA))
 
-"The run's tag: `stamp` in report.toml, else the one `fjordsim_<stamp>.log` in the run folder."
-function run_stamp()
-    haskey(CONFIG, "stamp") && return CONFIG["stamp"]
-    stamps = [m[1] for m in (match(r"^fjordsim_(\d{8}T\d{6})\.log$", f) for f in readdir(RES)) if !isnothing(m)]
-    length(stamps) == 1 || error("$(RES) holds $(length(stamps)) run logs; set `stamp` in report.toml")
-    return only(stamps)
+"""
+The run's tags in launch order, one per `fjordsim_<tag>.log` in the run folder: a run resumed from a checkpoint
+writes its files under a new tag. `stamp` in report.toml picks one.
+"""
+function run_stamps()
+    haskey(CONFIG, "stamp") && return [CONFIG["stamp"]]
+    stamps = sort([m[1] for m in (match(r"^fjordsim_(\d{8}T\d{6})\.log$", f) for f in readdir(RES)) if !isnothing(m)])
+    isempty(stamps) && error("$(RES) holds no run log")
+    return stamps
 end
-const STAMP = run_stamp()
+const STAMPS = run_stamps()
+
+"One output's files in launch order, one per tag that wrote it: `run_files(\"stations_section\", \".nc\")`."
+run_files(stem, rest) = filter(isfile, [joinpath(RES, "$(stem)_$(stamp)$(rest)") for stamp in STAMPS])
 
 # The run starts at RUN_START, the time origin of its station files; the window validated is START to STOP,
 # scored from SPINUP: the first weeks are the adjustment from the initial state.
