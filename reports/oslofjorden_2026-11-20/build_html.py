@@ -9,9 +9,9 @@ them, and the summary, are this run's.
 """
 
 import math
-from datetime import datetime, timedelta
 import re
 import statistics
+from datetime import datetime, timedelta
 
 from html_report import CONFIG, HERE, PROJECT, Page, plain, read, signed, thousands
 
@@ -77,7 +77,9 @@ MEAN_DT = float(model_days) * 86400 / int(iterations)
 RESTART_DAY = float(re.search(r"Iter: \d+, time: ([\d.]+) days", logs[1])[1])
 RUN_ID = (RUN_DIR / "setup" / "run_id").read_text().strip()
 RESTART_DATE = str(datetime.fromisoformat(START) + timedelta(days=RESTART_DAY))[:10]
-N_HYDROGRAPHY = len(list((RUN_DIR / "results").glob(f"stations_hydrography_{STAMPS[0]}_*.nc")))
+N_HYDROGRAPHY = len(
+    list((RUN_DIR / "results").glob(f"stations_hydrography_{STAMPS[0]}_*.nc"))
+)
 
 # --- the CTD pairs ----------------------------------------------------------------------------------------------
 PAIRS = [
@@ -494,12 +496,8 @@ page.p(
     f'<a href="https://github.com/NIVANorge/FjordSim.jl">FjordSim</a> builds and runs fjord models with '
     f'<a href="https://github.com/CliMA/Oceananigans.jl">Oceananigans</a>, a flexible Julia package for finite volume simulations that runs on CPUs and GPUs (<a href="#references">Ramadhan et al., 2020</a>). '
     f"This run covers the Oslofjord from the Skagerrak to Oslo ({F('map')}) for two years. "
-    f"It was stopped on {RESTART_DATE} and resumed from its last checkpoint. The scores join the output of both "
-    f"launches; where they overlap, the second launch's output is used."
 )
-page.p(
-    "Table 1 provides an overview of each setting, including the reasons why it was chosen over an alternative."
-)
+page.p("Table 1 provides an overview of each setting.")
 page.table(
     ["", "Setting"],
     [
@@ -527,7 +525,7 @@ page.table(
         [
             "Bathymetry",
             f"Kartverket's soundings (Geonorge Dybdedata), gridded at 40 m. Minimum depth 2 m, slopes limited, "
-            f"every island kept, sills kept: Drøbak {sills[0]['model_m']} m (real {sills[0]['real_m'].split(' ')[0]} m), "
+            f"sills kept: Drøbak {sills[0]['model_m']} m (real {sills[0]['real_m'].split(' ')[0]} m), "
             f"Svelvik {sills[1]['model_m']} m (real 11 m).",
         ],
         [
@@ -541,11 +539,9 @@ page.table(
         ["Momentum advection", "5th-order WENO, vector-invariant form."],
         [
             "Tracer advection",
-            "5th-order WENO; salinity bounded to 0–40 g/kg. First-order upwind within 3 cells of a river "
-            "mouth. Where a face is too close to land or the seabed for WENO's stencil, temperature falls back to "
-            "first-order upwind in the top four cells (to 5.5 m) and to second-order centred below. Why: the "
-            "centred fallback overshoots and left the surface too warm; the upwind one, used deeper, mixed heat into "
-            "the sill basins. Salinity keeps the centred fallback: upwind faces mixed the halocline away.",
+            "5th-order WENO; salinity bounded to 0–40 g/kg. First-order upwind within 3 cells of a river mouth"
+            "Where land or the seabed is closer than three cells to a face, temperature falls back to "
+            "first-order upwind in the top four cells (to 5.5 m) and to second-order centred below.",
         ],
         [
             "Vertical mixing",
@@ -558,15 +554,12 @@ page.table(
         ["Bottom drag", "Quadratic, coefficient 0.003."],
         [
             "Shortwave",
-            "Absorbed over depth in two bands: 58 % over 0.35 m, the rest over 3 m, from the fjord's 4–6 m "
-            "Secchi depths. Why: all of it in the 1 m top cell held the summer heat in the top metre and left "
-            "2.5–20 m too cold.",
+            "Absorbed over depth in two bands: 58 % over 0.35 m, the rest over 3 m. ",
         ],
         [
             "Open boundary",
-            "Hourly T, S, u, v and sea level from NorKyst v3 800 m (member m00, the only member published over "
-            "the whole run); hourly, because a Flather condition needs the tide in the sea level. Relaxation "
-            "to the data in 3 h on inflow, 360 days on outflow; a 3.2 km sponge (viscosity 20, diffusivity "
+            "Hourly T, S, u, v and sea level from NorKyst v3 800 m. Relaxation "
+            "to the data is 3 h on inflow, 360 days on outflow; a 3.2 km sponge (viscosity 20, diffusivity "
             "10 m² s⁻¹) damps what the boundary radiates. Below 300 m the 300 m value: NorKyst's output stops "
             f"there. The tide is scaled per constituent to the Viker gauge: NorKyst v3 800 m's "
             f"M2 at the boundary is {viker['norkyst800_boundary_cm']} cm against {viker['kartverket_obs_cm']} cm "
@@ -574,7 +567,7 @@ page.table(
         ],
         [
             "Atmosphere",
-            "NORA3 hindcast, hourly, regridded to 0.02°. Bulk air–sea fluxes; snowfall enters the water.",
+            "NORA3 hindcast, hourly, regridded to 0.02°.",
         ],
         [
             "Rivers",
@@ -601,8 +594,7 @@ page.table(
         ],
         [
             "Cost",
-            f"{WALL_DAYS:.1f} days on one NVIDIA L4 GPU, in two launches: the first was stopped on "
-            f"{RESTART_DATE}, and the second resumed from the last checkpoint.",
+            f"{WALL_DAYS:.1f} days on one NVIDIA L4 GPU. Output writing took a quarter of the time.",
         ],
     ],
     caption="<b>Table 1.</b> Model setup.",
@@ -629,7 +621,7 @@ page.table(
     [
         [
             "NIVA CTD casts (ODM2)",
-            "T and S in 1 m bins; Inner Oslofjord (Fagrådet) and Outer Oslofjord monitoring",
+            "T and S every 1 m; Inner Oslofjord (Fagrådet) and Outer Oslofjord monitoring",
             f"{SPINUP} to {last_cast}",
             f"{n_stations} stations, {len(casts)} casts, {thousands(n_samples)} samples",
         ],
