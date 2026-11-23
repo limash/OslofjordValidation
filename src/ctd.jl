@@ -312,7 +312,7 @@ function pattern_panels(fig, place)
     for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(REFERENCES)
         xs = filter(x -> x.reference == k && x.var == var, taylor)
         isempty(xs) && continue
-        ax, point = place(fig[r, c], "$(var == "S" ? "Salinity" : "Temperature"): FjordSim and $(LABELS[k])")
+        ax, point = place(fig[r, c], "$(var == "S" ? "Salinity" : "Temperature"): FjordSim and $(LABELS[k])", var)
         for x in xs
             scatter!(ax, [point(x)[1]], [point(x)[2]], color = COLORS[x.model], marker = band_markers[x.band], markersize = 16,
                 strokecolor = :black, strokewidth = 0.6)
@@ -323,7 +323,7 @@ end
 # Taylor: angle arccos(r), radius σ_model/σ_obs; the distance to the star is the centred RMSE / σ_obs (dashed arcs).
 fig = Figure(size = (1700, 1250))
 pattern_legend(fig)
-pattern_panels(fig, (pos, title) -> begin
+pattern_panels(fig, (pos, title, _) -> begin
     ax = PolarAxis(pos; title, thetalimits = (0, π / 2), rlimits = (0, 1.75), rticks = 0:0.25:1.75,
         thetaticks = (acos.([1.0, 0.99, 0.95, 0.9, 0.8, 0.6, 0.4, 0.2, 0.0]), ["1", "0.99", "0.95", "0.9", "0.8", "0.6", "0.4", "0.2", "0"]))
     for e in (0.25, 0.5, 0.75, 1.0)
@@ -340,7 +340,7 @@ save(joinpath(FIG, "taylor.png"), fig, px_per_unit = 1.2)
 # Target: x = sign(σ_model − σ_obs) × centred RMSE / σ_obs, y = bias / σ_obs; the distance to the origin is RMSE / σ_obs.
 fig = Figure(size = (1700, 1250))
 pattern_legend(fig)
-pattern_panels(fig, (pos, title) -> begin
+pattern_panels(fig, (pos, title, var) -> begin
     ax = Axis(pos; title, aspect = 1, xlabel = "sign(σ_model − σ_obs) × centred RMSE / σ_obs", ylabel = "bias / σ_obs")
     φ = range(0, 2π, length = 200)
     for e in (0.5, 1.0)
@@ -348,6 +348,12 @@ pattern_panels(fig, (pos, title) -> begin
     end
     hlines!(ax, 0, color = :gray85); vlines!(ax, 0, color = :gray85)
     limits!(ax, -1.75, 1.75, -1.75, 1.75)
+    # What each quadrant means: up is a positive bias, right a larger spread than observed.
+    high, low = var == "S" ? ("too salty", "too fresh") : ("too warm", "too cold")
+    for (x, y, align, text) in ((-1.7, 1.7, (:left, :top), "$high,\ntoo smooth"), (1.7, 1.7, (:right, :top), "$high,\ntoo variable"),
+            (-1.7, -1.7, (:left, :bottom), "$low,\ntoo smooth"), (1.7, -1.7, (:right, :bottom), "$low,\ntoo variable"))
+        text!(ax, x, y; text, align, fontsize = 15, color = :gray35, font = :italic)
+    end
     (ax = ax, point = x -> ((x.model_std >= x.obs_std ? 1 : -1) * x.crmse / x.obs_std, x.bias / x.obs_std))
 end)
 save(joinpath(FIG, "target.png"), fig, px_per_unit = 1.2)

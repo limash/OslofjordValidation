@@ -278,6 +278,28 @@ norm_bias = lambda k, m, v, b: (
 )  # noqa: E731
 deep_sd = [sd_ratio(k, m, "T", ">50 m") for k in REFERENCES for m in ("fjordsim", k)]
 
+
+def diagram_stations(k):
+    """The stations of reference model `k`'s diagram column: where it and FjordSim both have a cast value."""
+    ok = lambda r, v: all(
+        math.isfinite(float(r[f"{m}_{v}"])) for m in ("obs", "fjordsim", k)
+    )  # noqa: E731
+    return {r["station"] for r in PAIRS if ok(r, "S") or ok(r, "T")}
+
+
+def by_region(stations):
+    """`stations` split into the Inner Oslofjord, the Drammensfjord (D-2, D-3) and the outer fjord; "all <n>" where
+    every scored station of a region is in."""
+    drammen = {"D-2", "D-3"}
+    regions = (INNER, drammen, set(scored) - INNER - drammen)
+    return [
+        f"all {len(region)}"
+        if region <= stations
+        else ", ".join(sorted(stations & region)) or "–"
+        for region in regions
+    ]
+
+
 # Bias by month and depth band, each model on every sample it reaches (ctd_bias_monthly.csv).
 monthly = {
     (r["model"], r["variable"], r["band"], r["month"]): float(r["bias"])
@@ -884,6 +906,38 @@ page.p(
     f"the vertical axis is the bias, the horizontal one the centred RMSE, negative where the model varies less "
     f"than observed. The distance to the origin is the RMSE; inside the unit circle a model beats the observed mean."
 )
+page.p(
+    "Each column scores different stations (Table 6). σ_obs changes with the stations, and the same error lies "
+    "farther out where it is small."
+)
+page.table(
+    ["Column", "Inner Oslofjord", "Drammensfjord", "Outer fjord"],
+    [[NAME[k], *by_region(diagram_stations(k))] for k in REFERENCES],
+    caption="<b>Table 6.</b> The stations of each column of the Taylor and target diagrams.",
+)
+page.p("A few disclaimers before reading the diagrams:")
+page.items(
+    [
+        "Within one panel, the comparison is fair: FjordSim and the reference model are scored on exactly the same samples.",
+        "Across panels, the comparison is not fair. Moving from the 160 m panel to the 800 m panel changes the region "
+        "and the scale, not just the reference model.",
+        "The NorFjords column is the closest to FjordSim's overall score, since it covers all stations. It still stops "
+        "at the end of June 2026.",
+    ]
+)
+page.figure(
+    "taylor",
+    "figures/taylor.png",
+    "Taylor diagrams: salinity (top), temperature (bottom); each column FjordSim and one reference model on "
+    "the samples both have. Marker: depth layer. Angle: correlation; radius: σ_model/σ_obs; dashed arcs: "
+    "centred RMSE / σ_obs; star: observations.",
+)
+page.figure(
+    "target",
+    "figures/target.png",
+    "Target diagrams, same layout. Vertical: bias / σ_obs; horizontal: centred RMSE / σ_obs, negative where "
+    "the model varies less than observed. Dashed circles: RMSE / σ_obs of 0.5 and 1.",
+)
 top = "0-5 m"
 page.p(
     f"In salinity's top 20 m FjordSim correlates as well as NorKyst v3 160 m and better than the others, with nearly "
@@ -903,19 +957,6 @@ page.p(
     f"In the deep layer every model varies too much (σ_model/σ_obs {span(deep_sd, 2)}). There FjordSim's bias is "
     f"{plain(norm_bias('norfjords', 'fjordsim', 'T', '>50 m'))} σ_obs, NorFjords' "
     f"{plain(norm_bias('norfjords', 'norfjords', 'T', '>50 m'))}, on the same samples."
-)
-page.figure(
-    "taylor",
-    "figures/taylor.png",
-    "Taylor diagrams: salinity (top), temperature (bottom); each column FjordSim and one reference model on "
-    "the samples both have. Marker: depth layer. Angle: correlation; radius: σ_model/σ_obs; dashed arcs: "
-    "centred RMSE / σ_obs; star: observations.",
-)
-page.figure(
-    "target",
-    "figures/target.png",
-    "Target diagrams, same layout. Vertical: bias / σ_obs; horizontal: centred RMSE / σ_obs, negative where "
-    "the model varies less than observed. Dashed circles: RMSE / σ_obs of 0.5 and 1.",
 )
 
 page.h3("Bias by station and depth")
@@ -1176,14 +1217,14 @@ page.table(
         ]
         for g in GAUGES
     ],
-    caption=f"<b>Table 6.</b> M2 amplitude (cm), {SPINUP} to {STOP}. NorFjords keeps hourly sea level for "
+    caption=f"<b>Table 7.</b> M2 amplitude (cm), {SPINUP} to {STOP}. NorFjords keeps hourly sea level for "
     f"2024 only.",
     numeric=(1, 2, 3, 4),
 )
 page.p(
     f"FjordSim's tide is right: M2 within {m2_off:.1f} cm and {m2_phase:.0f}° at all gauges, after the boundary "
     f"correction to Viker. NorKyst v3's M2 is {too_large(m2, 'norkyst_cm')} % too large, NorFjords' "
-    f"{too_large(m2_nf, 'norfjords_cm')} % ({F('tide')}). Table 7 gives the other constituents."
+    f"{too_large(m2_nf, 'norfjords_cm')} % ({F('tide')}). Table 8 gives the other constituents."
 )
 page.table(
     ["Constituent", *GAUGES],
@@ -1198,7 +1239,7 @@ page.table(
         ]
         for c in CONSTITUENTS
     ],
-    caption=f"<b>Table 7.</b> Tidal amplitude (cm), observed / FjordSim, and FjordSim's phase error, "
+    caption=f"<b>Table 8.</b> Tidal amplitude (cm), observed / FjordSim, and FjordSim's phase error, "
     f"{SPINUP} to {STOP}.",
     numeric=(1, 2, 3),
 )
@@ -1272,11 +1313,11 @@ page.h2("next", "Next steps")
 page.items(
     [
         "<b>Currents.</b> The run writes hourly velocity at the six ADCP sites of 2014 (Km1, Kn2, Ri1, Rl1, Rm1, Rn1) and "
-        "at the Slagen refinery, whose bottom ADCP measured at 2.5 and 10 m from 1997 (<a href=\"#references\">Hjelmervik et al., 2017</a>). A record "
+        'at the Slagen refinery, whose bottom ADCP measured at 2.5 and 10 m from 1997 (<a href="#references">Hjelmervik et al., 2017</a>). A record '
         "from 2024–2026 at "
         "any of them would let the currents be scored in 5-day windows, as NorKyst v3's are.",
         "<b>Boundary data.</b> The deep spring 2026 error most likely comes from NorKyst v3 800 m. A bias correction of the boundary "
-        "data, which NorKyst's developers also plan (<a href=\"#references\">Christensen et al., 2026</a>), or another boundary source would test that.",
+        'data, which NorKyst\'s developers also plan (<a href="#references">Christensen et al., 2026</a>), or another boundary source would test that.',
         f"<b>Inner basins.</b> Find why FjordSim misses the February 2026 inflow, which NorKyst v3 160 m carries. Near "
         f"the boundary FjordSim's deep layer is within {max(abs(float(bnd[(s_, 'T', '2026-02')]['fjordsim_bias'])) for s_ in ('NIVA', 'IMR')):.1f} °C "
         f"in February 2026, so the suspects are inside the fjord: the Drøbak sill ({sills[0]['model_m']} m in the model, "
@@ -1286,7 +1327,7 @@ page.items(
         "<b>Svelvik.</b> Find why the strait's strongest currents are too weak: the strait's cross-section in the model, "
         "or the tidal exchange of the Drammensfjord.",
         "<b>Representativeness.</b> Score each station's 3×3 neighbouring columns as well as its own, to see how much of "
-        "the error a 160 m shift explains (<a href=\"#references\">Dalsøren et al., 2020</a>). This needs a new column extract on the GCP VM.",
+        'the error a 160 m shift explains (<a href="#references">Dalsøren et al., 2020</a>). This needs a new column extract on the GCP VM.',
         "<b>FerryBox.</b> NIVA's FerryBox tracks (4 m, every minute) are fetched but not scored: FjordSim has to be read "
         "along the tracks from the 3D snapshots.",
     ]
