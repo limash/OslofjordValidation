@@ -338,25 +338,55 @@ end)
 save(joinpath(FIG, "taylor.png"), fig, px_per_unit = 1.2)
 
 # Target: x = sign(σ_model − σ_obs) × centred RMSE / σ_obs, y = bias / σ_obs; the distance to the origin is RMSE / σ_obs.
-fig = Figure(size = (1700, 1250))
-pattern_legend(fig)
-pattern_panels(fig, (pos, title, var) -> begin
-    ax = Axis(pos; title, aspect = 1, xlabel = "sign(σ_model − σ_obs) × centred RMSE / σ_obs", ylabel = "bias / σ_obs")
+target_point(x) = ((x.model_std >= x.obs_std ? 1 : -1) * x.crmse / x.obs_std, x.bias / x.obs_std)
+"A target diagram's axis: circles at RMSE / σ_obs of 0.5 and 1, and what each quadrant means for `var`."
+function target_axis(pos, title, var; ylabel = "bias / σ_obs", lim = 1.75, fontsize = 15)
+    ax = Axis(pos; title, aspect = 1, xlabel = "sign(σ_model − σ_obs) × centred RMSE / σ_obs", ylabel)
     φ = range(0, 2π, length = 200)
     for e in (0.5, 1.0)
         lines!(ax, e .* cos.(φ), e .* sin.(φ), color = :gray60, linestyle = :dash, linewidth = 1)
     end
     hlines!(ax, 0, color = :gray85); vlines!(ax, 0, color = :gray85)
-    limits!(ax, -1.75, 1.75, -1.75, 1.75)
-    # What each quadrant means: up is a positive bias, right a larger spread than observed.
+    limits!(ax, -lim, lim, -lim, lim)
+    # Up is a positive bias, right a larger spread than observed.
     high, low = var == "S" ? ("too salty", "too fresh") : ("too warm", "too cold")
-    for (x, y, align, text) in ((-1.7, 1.7, (:left, :top), "$high,\ntoo smooth"), (1.7, 1.7, (:right, :top), "$high,\ntoo variable"),
-            (-1.7, -1.7, (:left, :bottom), "$low,\ntoo smooth"), (1.7, -1.7, (:right, :bottom), "$low,\ntoo variable"))
-        text!(ax, x, y; text, align, fontsize = 15, color = :gray35, font = :italic)
+    e = lim - 0.05
+    for (x, y, align, text) in ((-e, e, (:left, :top), "$high,\ntoo smooth"), (e, e, (:right, :top), "$high,\ntoo variable"),
+            (-e, -e, (:left, :bottom), "$low,\ntoo smooth"), (e, -e, (:right, :bottom), "$low,\ntoo variable"))
+        text!(ax, x, y; text, align, fontsize, color = :gray35, font = :italic)
     end
-    (ax = ax, point = x -> ((x.model_std >= x.obs_std ? 1 : -1) * x.crmse / x.obs_std, x.bias / x.obs_std))
-end)
+    return ax
+end
+fig = Figure(size = (1700, 1250))
+pattern_legend(fig)
+pattern_panels(fig, (pos, title, var) -> (ax = target_axis(pos, title, var), point = target_point))
 save(joinpath(FIG, "target.png"), fig, px_per_unit = 1.2)
+
+# Target per station: each model on every cast sample it has after the spin-up, all depths, one point per station
+# with at least 10 samples, scaled by that station's σ_obs. The models' station sets differ. NorKyst v3 800 m, at
+# nine outer stations only, is left out.
+station_models = ("fjordsim", "norkyst160", "norfjords")
+per_station = []
+for m in station_models, var in ("S", "T"), s in sort(unique(p.station for p in scored))
+    ps = filter(p -> p.station == s && isfinite(val(p, "obs", var)) && isfinite(val(p, m, var)), scored)
+    length(ps) < 10 && continue
+    push!(per_station, (model = m, var, station = s, pattern_stats(ps, var, m)...))
+end
+writecsv(joinpath(TABLES, "target_stations.csv"), "model,variable,station,n,obs_std,model_std,correlation,centred_rmse,bias,x,y",
+    [@sprintf("%s,%s,%s,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f", x.model, x.var, x.station, x.n, x.obs_std, x.model_std, x.r,
+        x.crmse, x.bias, target_point(x)...) for x in per_station])
+fig = Figure(size = (1900, 1300), fontsize = 18)
+for (r, var) in enumerate(("S", "T")), (c, m) in enumerate(station_models)
+    xs = filter(x -> x.model == m && x.var == var, per_station)
+    ax = target_axis(fig[r, c], "$(var == "S" ? "Salinity" : "Temperature"): $(LABELS[m]), $(length(xs)) stations", var;
+        ylabel = c == 1 ? "bias / σ_obs" : "", lim = 1.6, fontsize = 15)
+    for x in xs
+        px, py = target_point(x)
+        scatter!(ax, [px], [py], color = COLORS[m], markersize = 14, strokecolor = :black, strokewidth = 0.5)
+        text!(ax, clamp(px, -1.6, 1.6), clamp(py, -1.6, 1.6), text = " " * x.station, fontsize = 14, align = (:left, :center))
+    end
+end
+save(joinpath(FIG, "target_stations.png"), fig, px_per_unit = 1.2)
 
 # Deep water through the run: FjordSim and the reference models daily, observations on the cast days.
 picks = [("VAL-1", 100.0), ("MO-2", 80.0), ("D-2", 50.0), ("D-2", 100.0), ("D-3", 50.0), ("Im2", 100.0), ("Fl1", 100.0),

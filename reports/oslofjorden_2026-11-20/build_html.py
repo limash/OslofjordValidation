@@ -277,6 +277,15 @@ norm_bias = lambda k, m, v, b: (
     float(pattern[(k, m, v, b)]["bias"]) / float(pattern[(k, m, v, b)]["obs_std"])
 )  # noqa: E731
 deep_sd = [sd_ratio(k, m, "T", ">50 m") for k in REFERENCES for m in ("fjordsim", k)]
+# Target per station (target_stations.csv): each model on every cast it has, one point per station.
+per_station = read("target_stations.csv")
+station_pts = lambda m, v: [r for r in per_station if r["model"] == m and r["variable"] == v]  # noqa: E731
+inside = lambda m, v: sum(math.hypot(float(r["x"]), float(r["y"])) < 1 for r in station_pts(m, v))  # noqa: E731
+too_high = lambda m, v: sum(float(r["y"]) > 0 for r in station_pts(m, v))  # noqa: E731
+median_bias = lambda m, v: statistics.median(float(r["y"]) for r in station_pts(m, v))  # noqa: E731
+too_variable = lambda m, v: [r["station"] for r in station_pts(m, v) if float(r["x"]) > 0]  # noqa: E731
+outside = lambda m, v: [r["station"] for r in station_pts(m, v) if math.hypot(float(r["x"]), float(r["y"])) >= 1]  # noqa: E731
+one_cast = {s for s in scored if len({t for st, t in casts if st == s}) == 1}
 
 
 def diagram_stations(k):
@@ -464,6 +473,7 @@ FIGURES = [
     "scatter",
     "taylor",
     "target",
+    "target_stations",
     "bias",
     "monthly",
     "stratification",
@@ -957,6 +967,34 @@ page.p(
     f"In the deep layer every model varies too much (σ_model/σ_obs {span(deep_sd, 2)}). There FjordSim's bias is "
     f"{plain(norm_bias('norfjords', 'fjordsim', 'T', '>50 m'))} σ_obs, NorFjords' "
     f"{plain(norm_bias('norfjords', 'norfjords', 'T', '>50 m'))}, on the same samples."
+)
+of_n = lambda f, m, v: f"{f(m, v)} of {len(station_pts(m, v))}"  # noqa: E731
+names = lambda xs: ", ".join(xs[:-1]) + " and " + xs[-1] if len(xs) > 1 else "".join(xs)  # noqa: E731
+fs_T_out = outside("fjordsim", "T")
+page.figure(
+    "target_stations",
+    "figures/target_stations.png",
+    f"Target diagrams per station: salinity (top), temperature (bottom); FjordSim, NorKyst v3 160 m and NorFjords "
+    f"160 m, each on all its casts after {SPINUP}, all depths. Each point is one station with at least 10 samples, "
+    f"scaled by its own σ_obs. Dashed circles: RMSE / σ_obs of 0.5 and 1.",
+)
+page.p(
+    f"{F('target_stations')} scores FjordSim, NorKyst v3 160 m and NorFjords on all the casts each has, one point "
+    f"per station over all depths after {SPINUP}, scaled by that station's σ_obs. In salinity NorKyst v3 160 m and "
+    f"NorFjords are too salty at {of_n(too_high, 'norkyst160', 'S')} and {of_n(too_high, 'norfjords', 'S')} "
+    f"stations, FjordSim at {of_n(too_high, 'fjordsim', 'S')}. Their median bias is "
+    f"{plain(median_bias('norkyst160', 'S'))} and {plain(median_bias('norfjords', 'S'))} σ_obs against FjordSim's "
+    f"{plain(median_bias('fjordsim', 'S'))}. FjordSim's RMSE is below σ_obs at {of_n(inside, 'fjordsim', 'S')} "
+    f"stations, NorKyst v3 160 m's at {of_n(inside, 'norkyst160', 'S')} and NorFjords' at "
+    f"{of_n(inside, 'norfjords', 'S')}. Every model is too smooth at most stations; FjordSim varies too much at "
+    f"{names(too_variable('fjordsim', 'S'))}, next to river and harbour outlets."
+)
+page.p(
+    f"In temperature the RMSE is below σ_obs at {of_n(inside, 'fjordsim', 'T')} stations for FjordSim, "
+    f"{of_n(inside, 'norkyst160', 'T')} for NorKyst v3 160 m and {of_n(inside, 'norfjords', 'T')} for NorFjords, "
+    f"with a small cold bias (median {plain(median_bias('fjordsim', 'T'))} σ_obs for FjordSim)."
+    + (f" FjordSim's exception is {names(fs_T_out)}"
+       + (", which has a single cast." if set(fs_T_out) <= one_cast else ".") if fs_T_out else "")
 )
 
 page.h3("Bias by station and depth")
