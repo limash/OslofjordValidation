@@ -76,6 +76,9 @@ MEAN_DT = float(model_days) * 86400 / int(iterations)
 # The second launch's first progress line: the model day it picked up from.
 RESTART_DAY = float(re.search(r"Iter: \d+, time: ([\d.]+) days", logs[1])[1])
 RUN_ID = (RUN_DIR / "setup" / "run_id").read_text().strip()
+# The run logs name only the image `fjordsim:latest`, built from a working tree on 2026-11-16 and committed
+# as this commit the next morning; its examples/oslofjorden/oslofjorden.jl is the run's setup file.
+FJORDSIM_COMMIT = "ae8960012b012cb7b8d638e32ef44202dad2c755"
 RESTART_DATE = str(datetime.fromisoformat(START) + timedelta(days=RESTART_DAY))[:10]
 N_HYDROGRAPHY = len(
     list((RUN_DIR / "results").glob(f"stations_hydrography_{STAMPS[0]}_*.nc"))
@@ -539,7 +542,7 @@ page.table(
         ["Momentum advection", "5th-order WENO, vector-invariant form."],
         [
             "Tracer advection",
-            "5th-order WENO; salinity bounded to 0–40 g/kg. First-order upwind within 3 cells of a river mouth"
+            "5th-order WENO; salinity bounded to 0–40 g/kg. First-order upwind within 3 cells of a river mouth. "
             "Where land or the seabed is closer than three cells to a face, temperature falls back to "
             "first-order upwind in the top four cells (to 5.5 m) and to second-order centred below.",
         ],
@@ -581,10 +584,10 @@ page.table(
         ],
         [
             "Initial state",
-            f"NorKyst v3 on {START}: the 160 m Oslofjord nest (m71) where it covers the domain, the 800 m "
+            f"NorKyst v3 on {START}: the 160 m Oslofjord nest (m71), which covers the domain, the 800 m "
             "run (m00) elsewhere. Over the sill basins of the Inner Oslofjord and the Drammensfjord, the NIVA "
-            "casts nearest the start (within 14 days) replace whole columns; in the Drøbak Sound (Im2) only the "
-            "water below the sill. Why: NorKyst's columns there end above the basins' deep water, and its water "
+            "casts nearest the start (within 14 days) replace whole columns. In the Drøbak Sound (Im2), it is only the "
+            "water below the sill that is replaced. Reason: NorKyst's columns end above the basins' deep water there, and the water "
             "was up to 1.9 g/kg too salty and 2.3 °C too cold.",
         ],
         [
@@ -611,8 +614,8 @@ page.h3("Observations")
 page.figure(
     "map",
     "figures/map.png",
-    "Model depth and the stations. Green circles: NIVA cast stations (filled where the run writes hourly "
-    "profiles); orange diamonds: IMR stations; squares: tide gauges; blue triangles: river inflow columns; "
+    "Model depth and the stations. Green circles: NIVA cast stations; orange diamonds: IMR stations; "
+    "squares: tide gauges; blue triangles: river inflow columns, with the main rivers named; "
     "red line: open boundary.",
     fit=True,
 )
@@ -652,6 +655,7 @@ page.p(
 
 page.h3("Reference models")
 page.p(
+    "This report uses 3 reference models: NorKyst v3 160 m, NorKyst v3 800 m and NorFjords 160 m. "
     "NorKyst v3 160 m and NorKyst v3 800 m are separate simulations. The 160 m nest runs two-way nested in its "
     "own 800 m parent, which is not the 800 m run used here. Each station is read from the 160 m nest where it "
     "covers the station, else from the 800 m run. So every station has values from one NorKyst model only "
@@ -758,8 +762,7 @@ page.table(
             f"{len(on_nf)}",
         ],
     ],
-    caption="<b>Table 3.</b> The four models. *The NorKyst v3 description gives one system, not the 160 m "
-    "nest's settings apart.",
+    caption="<b>Table 3.</b> The four models: FjordSim and 3 reference models.",
 )
 page.p(
     'Sources: <a href="#references">Christensen et al. (2026)</a> for NorKyst v3; NorFjords\' archive metadata and '
@@ -799,15 +802,21 @@ page.table(
 page.h3("Scores")
 page.items(
     [
-        "Error is model minus observed; bias is the mean error, RMSE the root-mean-square error.",
+        r"Error is model minus observed, \(e_i = m_i - o_i\), over the \(N\) model–observation pairs; bias is the "
+        r"mean error and RMSE the root-mean-square error: "
+        r"\[\text{bias} = \frac{1}{N}\sum_{i=1}^{N} e_i, \qquad \text{RMSE} = \sqrt{\frac{1}{N}\sum_{i=1}^{N} e_i^2}.\]",
         "Each reference model is scored beside FjordSim on the samples both have. The sample sets differ: NorKyst's "
         "columns end at its own bottom, NorKyst v3 800 m covers only the outer stations, and NorFjords ends on 2026-06-30.",
         "Depth layers: " + ", ".join(LAYER.values()) + ".",
         "Regions: <i>Outer fjord</i>, the Outer Oslofjord programme; <i>Inner Oslofjord</i>, north of the Drøbak sill; "
         "<i>Drammensfjord</i>, D-2 and D-3.",
-        "Sea level is also scored in 5-day windows with the index λ of Duveiller et al. (2016), as "
-        'Dalsøren et al. (2020) and <a href="#references">Christensen et al. (2026)</a> score fjord currents. λ is the '
-        "correlation r, lowered for any difference in mean or variance; 1 is perfect. A window is <i>good</i> at "
+        'Sea level is also scored in 5-day windows with the index λ of <a href="#references">Duveiller et al. (2016)</a>, as '
+        '<a href="#references">Dalsøren et al. (2020)</a> and <a href="#references">Christensen et al. (2026)</a> score fjord currents. λ is the '
+        r"correlation \(r\), lowered for any difference in mean or variance; 1 is perfect. Over a window, "
+        r"\[\lambda = 1 - \frac{\frac{1}{N}\sum_{i=1}^{N} e_i^2}{\sigma_m^2 + \sigma_o^2 + (\bar m - \bar o)^2}"
+        r"\quad (r \ge 0), \qquad \lambda = 0 \quad (r < 0),\]"
+        r"where \(\bar m, \bar o\) are the means and \(\sigma_m, \sigma_o\) the standard deviations of model and "
+        "observed sea level. A window is <i>good</i> at "
         "λ ≥ 0.05; below that, <i>poor</i> where the model's mean anomaly over the window has the wrong sign, else "
         "<i>medium</i>.",
     ]
@@ -1263,11 +1272,11 @@ page.h2("next", "Next steps")
 page.items(
     [
         "<b>Currents.</b> The run writes hourly velocity at the six ADCP sites of 2014 (Km1, Kn2, Ri1, Rl1, Rm1, Rn1) and "
-        "at the Slagen refinery, whose bottom ADCP measured at 2.5 and 10 m from 1997 (Hjelmervik et al., 2017). A record "
+        "at the Slagen refinery, whose bottom ADCP measured at 2.5 and 10 m from 1997 (<a href=\"#references\">Hjelmervik et al., 2017</a>). A record "
         "from 2024–2026 at "
         "any of them would let the currents be scored in 5-day windows, as NorKyst v3's are.",
         "<b>Boundary data.</b> The deep spring 2026 error most likely comes from NorKyst v3 800 m. A bias correction of the boundary "
-        "data, which NorKyst's developers also plan (Christensen et al., 2026), or another boundary source would test that.",
+        "data, which NorKyst's developers also plan (<a href=\"#references\">Christensen et al., 2026</a>), or another boundary source would test that.",
         f"<b>Inner basins.</b> Find why FjordSim misses the February 2026 inflow, which NorKyst v3 160 m carries. Near "
         f"the boundary FjordSim's deep layer is within {max(abs(float(bnd[(s_, 'T', '2026-02')]['fjordsim_bias'])) for s_ in ('NIVA', 'IMR')):.1f} °C "
         f"in February 2026, so the suspects are inside the fjord: the Drøbak sill ({sills[0]['model_m']} m in the model, "
@@ -1277,7 +1286,7 @@ page.items(
         "<b>Svelvik.</b> Find why the strait's strongest currents are too weak: the strait's cross-section in the model, "
         "or the tidal exchange of the Drammensfjord.",
         "<b>Representativeness.</b> Score each station's 3×3 neighbouring columns as well as its own, to see how much of "
-        "the error a 160 m shift explains (Dalsøren et al., 2020). This needs a new column extract on the GCP VM.",
+        "the error a 160 m shift explains (<a href=\"#references\">Dalsøren et al., 2020</a>). This needs a new column extract on the GCP VM.",
         "<b>FerryBox.</b> NIVA's FerryBox tracks (4 m, every minute) are fetched but not scored: FjordSim has to be read "
         "along the tracks from the 3D snapshots.",
     ]
@@ -1287,8 +1296,9 @@ page.items(
 page.h2("availability", "Code and data availability")
 page.items(
     [
-        f'Model: <a href="https://github.com/NIVANorge/FjordSim.jl">FjordSim.jl</a>, setup '
-        f"<code>examples/oslofjorden/oslofjorden.jl</code>, run <code>{RUN_ID}</code> (tags {' and '.join(STAMPS)}).",
+        f'Model: <a href="https://github.com/NIVANorge/FjordSim.jl">FjordSim.jl</a> at commit '
+        f'<a href="https://github.com/NIVANorge/FjordSim.jl/commit/{FJORDSIM_COMMIT}"><code>{FJORDSIM_COMMIT[:7]}</code></a>, '
+        f"setup <code>examples/oslofjorden/oslofjorden.jl</code>, run <code>{RUN_ID}</code> (tags {' and '.join(STAMPS)}).",
         f"Scores and figures: this project's <code>src/</code> scripts and <code>reports/{HERE.name}/</code>, run as its "
         "README describes.",
         "NIVA CTD casts: NIVA's ODM2 database (odm2.p.niva.no), access on request. FerryBox: ferrybox-api.niva.no.",

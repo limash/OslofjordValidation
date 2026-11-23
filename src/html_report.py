@@ -60,6 +60,12 @@ document.querySelectorAll('[data-videos]').forEach(fig => {
 });
 """
 
+# KaTeX typesets the formulas written between \( \) (inline) and \[ \] (display); it needs a network connection.
+KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist"
+MATH_HEAD = (f'<link rel="stylesheet" href="{KATEX}/katex.min.css">'
+             f'<script defer src="{KATEX}/katex.min.js"></script>'
+             f'<script defer src="{KATEX}/contrib/auto-render.min.js" onload="renderMathInElement(document.body)"></script>')
+
 
 def read(name):
     """A CSV of the report's `tables/`, or else of its `data/`."""
@@ -156,7 +162,7 @@ class Page:
         Path(path).write_text(
             f'<!doctype html><html lang="en"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-            f"<title>{self.title}</title><style>{CSS}</style></head><body><main>"
+            f"<title>{self.title}</title><style>{CSS}</style>{MATH_HEAD}</head><body><main>"
             f'<h1>{self.title}</h1><p class="meta">{self.meta}</p>'
             f'<nav class="toc">{toc}</nav>' + "\n".join(self.body) +
             f"</main><script>{SWITCH_JS}</script></body></html>\n")

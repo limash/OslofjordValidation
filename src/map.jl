@@ -24,13 +24,17 @@ function stations(stem)
     return out
 end
 ctd = stations("stations_hydrography")
-# The stations with a station writer, whose hourly output the report draws.
-written = Set(s.name for s in ctd)
 gauges = [(name = "Viker", lon = 10.949769, lat = 59.036046), (name = "Oscarsborg", lon = 10.604861, lat = 59.678073), (name = "Oslo", lon = 10.734510, lat = 59.908559)]
 # River inflow columns: the ownership map of the river file.
 rivers = NCDataset(joinpath(RUN_SETUP, "rivers_nve.nc")) do ds
     owner = ds["river"][:, :]
     [(lon[I[1]], lat[I[2]]) for I in CartesianIndices(owner) if coalesce(owner[I], 0) > 0]
+end
+# The main rivers, named on the map: a mean discharge over 100 m³/s (Glomma's two outlets, Drammenselva and
+# Numedalslågen; the next is 11 m³/s).
+main_rivers = NCDataset(joinpath(RUN_SETUP, "rivers_nve.nc")) do ds
+    Q = mean(ds["discharge"][:, :], dims = 2)
+    [(name = ds["river_name"][k], lon = lon[ds["river_i"][k]], lat = lat[ds["river_j"][k]]) for k in axes(Q, 1) if Q[k] > 100]
 end
 
 # Effective sill depth between two cells: the deepest bottleneck over all wet paths (maximin path).
@@ -82,13 +86,11 @@ open(joinpath(TABLES, "station_depths.csv"), "w") do io
 end
 
 # --- the map -----------------------------------------------------------------------------------
-# Only the stations this report scores: NIVA cast stations with casts in the window (those with the run's
-# hourly output filled), IMR's stations, and the tide gauges.
+# Only the stations this report scores: NIVA cast stations with casts in the window, IMR's stations, and the
+# tide gauges. The casts are scored from the daily 3D output, whether or not the run also writes the station hourly.
 with_casts = Set(r["station"] for r in readcsv(joinpath(REPORT_DATA, "ctd_pairs.csv")))
 niva = [(name = r["station"], lon = num(r["lon"]), lat = num(r["lat"])) for r in readcsv(joinpath(REPORT_DATA, "cells.csv"))
         if r["station"] in with_casts]
-niva_hourly = filter(s -> s.name in written, niva)
-niva_daily = filter(s -> !(s.name in written), niva)
 # IMR's Torbjørnskjær and Breiangen vest are the run's hourly stations OF-1 and OF-5.
 imr_alias = Dict("Torbjørnskjær" => "Torbjørnskjær (OF-1)", "Breiangen vest" => "Breiangen vest (OF-5)")
 imr = [(name = get(imr_alias, r["station"], r["station"]), lon = num(r["lon"]), lat = num(r["lat"]))
@@ -106,10 +108,8 @@ hlines!(ax, [lat[1] + 0.002], color = :red, linewidth = 7)
 text!(ax, 10.08, lat[1] + 0.008, text = "open boundary (south)", color = :red, fontsize = 18, font = :bold)
 scatter!(ax, first.(rivers), last.(rivers), marker = :utriangle, color = :deepskyblue, markersize = 8, strokecolor = :black,
     strokewidth = 0.4, label = "river inflow column (volume source)")
-scatter!(ax, [s.lon for s in niva_hourly], [s.lat for s in niva_hourly], marker = :circle, color = :limegreen, markersize = 20,
-    strokecolor = :black, strokewidth = 1.5, label = "NIVA casts, with the run's hourly station output")
-scatter!(ax, [s.lon for s in niva_daily], [s.lat for s in niva_daily], marker = :circle, color = :white, markersize = 15,
-    strokecolor = :darkgreen, strokewidth = 2.5, label = "NIVA casts, scored from the daily 3D output")
+scatter!(ax, [s.lon for s in niva], [s.lat for s in niva], marker = :circle, color = :limegreen, markersize = 16,
+    strokecolor = :black, strokewidth = 1.2, label = "NIVA casts")
 scatter!(ax, [s.lon for s in imr], [s.lat for s in imr], marker = :diamond, color = :darkorange, markersize = 22,
     strokecolor = :black, strokewidth = 1.5, label = "IMR casts (ØkoKyst, Tisler)")
 scatter!(ax, [g.lon for g in gauges], [g.lat for g in gauges], marker = :rect, color = :gold, markersize = 22,
@@ -122,17 +122,25 @@ offsets = Dict("S-9" => (-0.06, 0.014), "D-2" => (0.013, 0.004), "Oscarsborg" =>
     "Viker" => (0.015, 0.006), "Dk1" => (0.015, -0.004), "Ep1" => (0.015, 0.0), "Tisler-5" => (-0.085, 0.008),
     "Tisler-1" => (0.012, -0.006), "Breiangen vest (OF-5)" => (-0.235, 0.0), "Bastøy" => (-0.085, 0.0),
     "Færder" => (0.013, 0.006), "Torbjørnskjær (OF-1)" => (-0.215, -0.008))
-for s in niva_daily
-    dx, dy = get(small_offsets, s.name, (0.008, 0.0))
-    text!(ax, s.lon + dx, s.lat + dy, text = s.name, fontsize = 13, align = (:left, :center), color = :darkgreen, font = :bold)
+for s in niva
+    dx, dy = get(offsets, s.name, get(small_offsets, s.name, (0.01, 0.0)))
+    text!(ax, s.lon + dx, s.lat + dy, text = s.name, fontsize = 14, align = (:left, :center), font = :bold)
 end
-for s in vcat(niva_hourly, gauges)
+for s in gauges
     dx, dy = get(offsets, s.name, (0.013, 0.0))
     text!(ax, s.lon + dx, s.lat + dy, text = s.name, fontsize = 16, align = (:left, :center), font = :bold)
 end
 for s in imr
     dx, dy = get(offsets, s.name, (0.013, 0.0))
     text!(ax, s.lon + dx, s.lat + dy, text = s.name, fontsize = 15, align = (:left, :center), color = :darkorange3, font = :bold)
+end
+# Offsets keep the river names clear of the stations near their mouths.
+river_offsets = Dict("Drammenselva" => (-0.06, 0.016), "Numedalslågen" => (0.012, 0.012),
+    "Glomma (Osterelva)" => (-0.03, 0.016), "Glomma (Vesterelva)" => (-0.13, -0.012))
+for r in main_rivers
+    dx, dy = get(river_offsets, r.name, (0.012, 0.0))
+    # The river file transliterates Ø.
+    text!(ax, r.lon + dx, r.lat + dy, text = replace(r.name, "Osterelva" => "Østerelva"), fontsize = 15, align = (:left, :center), color = :dodgerblue4, font = :bold_italic)
 end
 for (name, lo, la) in (("Drammensfjord", 10.10, 59.69), ("Inner Oslofjord", 10.80, 59.76), ("Breiangen", 10.27, 59.46), ("Skagerrak", 10.12, 58.975),
         ("Drøbak Sound", 10.68, 59.635), ("Svelvik ↗", 10.30, 59.585), ("Hvaler", 11.07, 59.06), ("Larvik", 10.03, 59.07))
