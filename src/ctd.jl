@@ -280,7 +280,9 @@ for (c, k) in enumerate(ALL_MODELS)
 end
 save(joinpath(FIG, "stratification.png"), fig, px_per_unit = 1.3)
 
-# Taylor and target diagrams, per depth band: FjordSim beside each reference model on the samples both reach.
+# Taylor and target diagrams per depth layer: FjordSim beside one 160 m reference model per column, on the samples
+# both have, so within a panel both share each layer's n and σ_obs. The layer edges are the run's cell faces nearest
+# 2, 5, 10, 20, 30, 50, 75, 100 and 130 m. A layer with fewer than 5 stations is dropped.
 "Samples, observed and modelled standard deviation, correlation, centred RMSE and bias of model `k` on `ps`."
 function pattern_stats(ps, var, k)
     o = [val(p, "obs", var) for p in ps]; m = [val(p, k, var) for p in ps]
@@ -288,43 +290,57 @@ function pattern_stats(ps, var, k)
     bias = mean(m) - mean(o)
     return (n = length(ps), obs_std = so, model_std = sm, r = cor(o, m), crmse = sqrt(max(0, mean((m .- o) .^ 2) - bias^2)), bias)
 end
+const PATTERN_REFERENCES = ("norkyst160", "norfjords")
+cell_faces = -NCDataset(ds -> Float64.(ds["z_faces"][:]), joinpath(RUN_SETUP, "bathymetry.nc"))
+layer_edges = [0.0; [cell_faces[argmin(abs.(cell_faces .- d))] for d in (2, 5, 10, 20, 30, 50, 75, 100, 130)]]
 taylor = []
-for k in REFERENCES, var in ("S", "T"), (b, lo, hi) in bands[1:4]
-    ps = filter(p -> lo <= p.depth < hi && all(m -> isfinite(val(p, m, var)), ("obs", "fjordsim", k)), scored)
-    length(ps) < 3 && continue
+for k in PATTERN_REFERENCES, var in ("S", "T"), l in 1:length(layer_edges)-1
+    ps = filter(p -> layer_edges[l] <= p.depth < layer_edges[l+1] && all(m -> isfinite(val(p, m, var)), ("obs", "fjordsim", k)), scored)
+    stations = length(unique(p.station for p in ps))
+    stations < 5 && continue
     for m in ("fjordsim", k)
-        push!(taylor, (reference = k, model = m, var, band = b, pattern_stats(ps, var, m)...))
+        push!(taylor, (reference = k, model = m, var, layer = l, top = layer_edges[l], bottom = layer_edges[l+1], stations,
+            pattern_stats(ps, var, m)...))
     end
 end
-writecsv(joinpath(TABLES, "taylor_target.csv"), "reference,model,variable,band,n,obs_std,model_std,correlation,centred_rmse,bias",
-    [@sprintf("%s,%s,%s,%s,%d,%.3f,%.3f,%.3f,%.3f,%.3f", x.reference, x.model, x.var, x.band, x.n, x.obs_std, x.model_std, x.r, x.crmse, x.bias)
-     for x in taylor])
-band_markers = Dict(zip(first.(bands[1:4]), (:circle, :rect, :utriangle, :diamond)))
-"The top legend of both diagrams: the models by colour, the depth bands by marker."
-function pattern_legend(fig)
-    Legend(fig[0, 1:length(REFERENCES)],
-        [[MarkerElement(color = COLORS[k], marker = :circle, markersize = 14) for k in ALL_MODELS];
-         [MarkerElement(color = :gray40, marker = band_markers[b], markersize = 14) for b in first.(bands[1:4])]],
-        [[LABELS[k] for k in ALL_MODELS]; first.(bands[1:4])], orientation = :horizontal, framevisible = false, nbanks = 1)
+writecsv(joinpath(TABLES, "taylor_target.csv"),
+    "reference,model,variable,layer,top_m,bottom_m,stations,n,obs_std,model_std,correlation,centred_rmse,bias",
+    [@sprintf("%s,%s,%s,%d,%.1f,%.1f,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f", x.reference, x.model, x.var, x.layer, x.top, x.bottom,
+        x.stations, x.n, x.obs_std, x.model_std, x.r, x.crmse, x.bias) for x in taylor])
+depth_label(z) = @sprintf("%g", round(z, digits = 1))
+"The models by colour above both diagrams, and the layers' depths below them."
+function pattern_keys(fig)
+    Legend(fig[0, 1:2], [MarkerElement(color = COLORS[k], marker = :circle, markersize = 18) for k in ("fjordsim", PATTERN_REFERENCES...)],
+        [LABELS[k] for k in ("fjordsim", PATTERN_REFERENCES...)], orientation = :horizontal, framevisible = false)
+    layers = ["$l: $(depth_label(layer_edges[l]))–$(depth_label(layer_edges[l+1])) m" for l in 1:length(layer_edges)-1]
+    half = cld(length(layers), 2)
+    Label(fig[3, 1:2], "Layers from the surface:  " * join(layers[1:half], ",  ") * ",\n" * join(layers[half+1:end], ",  ") *
+        ". A ringed point lies beyond the axis and is drawn at its edge.", fontsize = 16, tellwidth = false)
 end
-# One panel per variable and reference model: the reference model and FjordSim on the samples both reach.
+"""One panel per variable and reference model: FjordSim and the reference model each a line of numbered layers from
+the surface down. `place(pos, title, var)` returns the axis, a statistics row's point, and `clip(point)`, which gives
+the point drawn and whether it lies beyond the axis."""
 function pattern_panels(fig, place)
-    for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(REFERENCES)
-        xs = filter(x -> x.reference == k && x.var == var, taylor)
-        isempty(xs) && continue
-        ax, point = place(fig[r, c], "$(var == "S" ? "Salinity" : "Temperature"): FjordSim and $(LABELS[k])", var)
-        for x in xs
-            scatter!(ax, [point(x)[1]], [point(x)[2]], color = COLORS[x.model], marker = band_markers[x.band], markersize = 16,
-                strokecolor = :black, strokewidth = 0.6)
+    for (r, var) in enumerate(("S", "T")), (c, k) in enumerate(PATTERN_REFERENCES)
+        ax, point, clip = place(fig[r, c], "$(var == "S" ? "Salinity" : "Temperature"): FjordSim and $(LABELS[k])", var)
+        for m in (k, "fjordsim")
+            xs = filter(x -> x.reference == k && x.model == m && x.var == var, taylor)
+            drawn = [clip(point(x)) for x in xs]
+            a, b, ringed = first.(drawn), getindex.(drawn, 2), last.(drawn)
+            lines!(ax, a, b, color = COLORS[m], linewidth = 2)
+            scatter!(ax, a, b, color = COLORS[m], markersize = 24, strokecolor = :black, strokewidth = 0.6)
+            text!(ax, a, b, text = string.(getfield.(xs, :layer)), fontsize = 13, align = (:center, :center), color = :white, font = :bold)
+            any(ringed) && scatter!(ax, a[ringed], b[ringed], markersize = 34, color = :transparent, strokecolor = COLORS[m], strokewidth = 2.5)
         end
     end
+    pattern_keys(fig)
 end
 
 # Taylor: angle arccos(r), radius σ_model/σ_obs; the distance to the star is the centred RMSE / σ_obs (dashed arcs).
-fig = Figure(size = (1700, 1250))
-pattern_legend(fig)
+const TAYLOR_RMAX = 2.0
+fig = Figure(size = (1500, 1450), fontsize = 18)
 pattern_panels(fig, (pos, title, _) -> begin
-    ax = PolarAxis(pos; title, thetalimits = (0, π / 2), rlimits = (0, 1.75), rticks = 0:0.25:1.75,
+    ax = PolarAxis(pos; title, thetalimits = (0, π / 2), rlimits = (0, TAYLOR_RMAX), rticks = 0:0.5:TAYLOR_RMAX,
         thetaticks = (acos.([1.0, 0.99, 0.95, 0.9, 0.8, 0.6, 0.4, 0.2, 0.0]), ["1", "0.99", "0.95", "0.9", "0.8", "0.6", "0.4", "0.2", "0"]))
     for e in (0.25, 0.5, 0.75, 1.0)
         φ = range(0, π, length = 200)
@@ -333,7 +349,8 @@ pattern_panels(fig, (pos, title, _) -> begin
     end
     lines!(ax, range(0, π / 2, length = 100), ones(100), color = :gray40, linewidth = 1)
     scatter!(ax, [0.0], [1.0], marker = :star5, markersize = 22, color = :black)
-    (ax = ax, point = x -> (acos(clamp(x.r, -1, 1)), x.model_std / x.obs_std))
+    (ax = ax, point = x -> (acos(clamp(x.r, -1, 1)), x.model_std / x.obs_std),
+     clip = ((θ, ρ),) -> (min(θ, π / 2), min(ρ, TAYLOR_RMAX), θ > π / 2 || ρ > TAYLOR_RMAX))
 end)
 save(joinpath(FIG, "taylor.png"), fig, px_per_unit = 1.2)
 
@@ -357,9 +374,10 @@ function target_axis(pos, title, var; ylabel = "bias / σ_obs", lim = 1.75, font
     end
     return ax
 end
-fig = Figure(size = (1700, 1250))
-pattern_legend(fig)
-pattern_panels(fig, (pos, title, var) -> (ax = target_axis(pos, title, var), point = target_point))
+const TARGET_LIM = 2.0
+fig = Figure(size = (1500, 1450), fontsize = 18)
+pattern_panels(fig, (pos, title, var) -> (ax = target_axis(pos, title, var; lim = TARGET_LIM), point = target_point,
+    clip = ((x, y),) -> (clamp(x, -TARGET_LIM, TARGET_LIM), clamp(y, -TARGET_LIM, TARGET_LIM), max(abs(x), abs(y)) > TARGET_LIM)))
 save(joinpath(FIG, "target.png"), fig, px_per_unit = 1.2)
 
 # Target per station: each model on every cast sample it has after the spin-up, all depths, one point per station

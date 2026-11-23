@@ -264,19 +264,28 @@ strat = {
     k: {r["group"]: r for r in read(f"stratification_skill_{k}.csv")}
     for k in REFERENCES
 }
-# Taylor and target statistics per depth band: FjordSim (m = "fjordsim") or reference model m = k on k's samples.
+# Taylor and target statistics per depth layer (taylor_target.csv): FjordSim (m = "fjordsim") or reference model
+# m = k, on the samples both have.
 pattern = {
-    (r["reference"], r["model"], r["variable"], r["band"]): r
+    (r["reference"], r["model"], r["variable"], int(r["layer"])): r
     for r in read("taylor_target.csv")
 }
-corr = lambda k, m, v, b: float(pattern[(k, m, v, b)]["correlation"])  # noqa: E731
-sd_ratio = lambda k, m, v, b: (
-    float(pattern[(k, m, v, b)]["model_std"]) / float(pattern[(k, m, v, b)]["obs_std"])
+PATTERN_REFS = sorted({k for k, *_ in pattern}, key=list(REFERENCES).index)
+layers_of = lambda k, v: sorted({l for k_, _, v_, l in pattern if (k_, v_) == (k, v)})  # noqa: E731
+pat = lambda k, m, v, l, c: float(pattern[(k, m, v, l)][c])  # noqa: E731
+corr = lambda k, m, v, l: pat(k, m, v, l, "correlation")  # noqa: E731
+sd_ratio = lambda k, m, v, l: pat(k, m, v, l, "model_std") / pat(k, m, v, l, "obs_std")  # noqa: E731
+norm_bias = lambda k, m, v, l: pat(k, m, v, l, "bias") / pat(k, m, v, l, "obs_std")  # noqa: E731
+norm_rmse = lambda k, m, v, l: (
+    math.hypot(pat(k, m, v, l, "centred_rmse"), pat(k, m, v, l, "bias")) / pat(k, m, v, l, "obs_std")
 )  # noqa: E731
-norm_bias = lambda k, m, v, b: (
-    float(pattern[(k, m, v, b)]["bias"]) / float(pattern[(k, m, v, b)]["obs_std"])
-)  # noqa: E731
-deep_sd = [sd_ratio(k, m, "T", ">50 m") for k in REFERENCES for m in ("fjordsim", k)]
+edges = {int(r["layer"]): (float(r["top_m"]), float(r["bottom_m"])) for r in pattern.values()}
+metres = lambda z: f"{z:g}"  # noqa: E731
+layer_span = lambda l: f"{metres(edges[l][0])}–{metres(edges[l][1])} m"  # noqa: E731
+# Temperature in the layers from 50 m down: every model's σ_model/σ_obs.
+deep_layers = {k: [l for l in layers_of(k, "T") if edges[l][0] >= 50] for k in PATTERN_REFS}
+deep_top = min(edges[l][0] for k in PATTERN_REFS for l in deep_layers[k])
+deep_sd = [sd_ratio(k, m, "T", l) for k in PATTERN_REFS for l in deep_layers[k] for m in ("fjordsim", k)]
 # Target per station (target_stations.csv): each model on every cast it has, one point per station.
 per_station = read("target_stations.csv")
 station_pts = lambda m, v: [r for r in per_station if r["model"] == m and r["variable"] == v]  # noqa: E731
@@ -909,8 +918,12 @@ page.p(
 
 page.h3("Taylor and target diagrams")
 page.p(
-    f'Both diagrams (<a href="#references">Taylor, 2001</a>; <a href="#references">Jolliff et al., 2009</a>) score each depth layer, FjordSim beside one reference model on the samples both have. Every '
-    f"statistic is divided by the observed standard deviation σ_obs of those samples. In the Taylor diagram "
+    f'Both diagrams (<a href="#references">Taylor, 2001</a>; <a href="#references">Jolliff et al., 2009</a>) score '
+    f"{len(edges)} depth layers, FjordSim beside one 160 m reference model on the samples both have, so within a panel "
+    f"both share each layer's samples and σ_obs. The layers' edges lie on FjordSim's cell faces "
+    f"({', '.join(metres(edges[l][0]) for l in sorted(edges))} and {metres(edges[max(edges)][1])} m). A layer with fewer "
+    f"than five stations is left out, so the NorKyst v3 160 m panels end at "
+    f"{metres(edges[max(layers_of('norkyst160', 'T'))][1])} m. Every statistic is divided by the observed standard deviation σ_obs of those samples. In the Taylor diagram "
     f"({F('taylor')}) the angle is the correlation r and the radius σ_model/σ_obs. The distance to the star "
     f"(the observations) is the centred RMSE, the RMSE with the bias removed. In the target diagram ({F('target')}) "
     f"the vertical axis is the bias, the horizontal one the centred RMSE, negative where the model varies less "
@@ -922,15 +935,15 @@ page.p(
 )
 page.table(
     ["Column", "Inner Oslofjord", "Drammensfjord", "Outer fjord"],
-    [[NAME[k], *by_region(diagram_stations(k))] for k in REFERENCES],
+    [[NAME[k], *by_region(diagram_stations(k))] for k in PATTERN_REFS],
     caption="<b>Table 6.</b> The stations of each column of the Taylor and target diagrams.",
 )
 page.p("A few disclaimers before reading the diagrams:")
 page.items(
     [
         "Within one panel, the comparison is fair: FjordSim and the reference model are scored on exactly the same samples.",
-        "Across panels, the comparison is not fair. Moving from the 160 m panel to the 800 m panel changes the region "
-        "and the scale, not just the reference model.",
+        f"Across panels, the comparison is not fair: the NorKyst v3 160 m panels cover fewer stations (Table 6) and "
+        f"end at {metres(edges[max(layers_of('norkyst160', 'T'))][1])} m.",
         "The NorFjords column is the closest to FjordSim's overall score, since it covers all stations. It still stops "
         "at the end of June 2026.",
     ]
@@ -938,9 +951,9 @@ page.items(
 page.figure(
     "taylor",
     "figures/taylor.png",
-    "Taylor diagrams: salinity (top), temperature (bottom); each column FjordSim and one reference model on "
-    "the samples both have. Marker: depth layer. Angle: correlation; radius: σ_model/σ_obs; dashed arcs: "
-    "centred RMSE / σ_obs; star: observations.",
+    "Taylor diagrams: salinity (top), temperature (bottom); FjordSim beside NorKyst v3 160 m (left) and NorFjords "
+    "160 m (right) on the samples both have. Numbers: depth layers from the surface, listed under the panels. "
+    "Angle: correlation; radius: σ_model/σ_obs; dashed arcs: centred RMSE / σ_obs; star: observations.",
 )
 page.figure(
     "target",
@@ -948,25 +961,44 @@ page.figure(
     "Target diagrams, same layout. Vertical: bias / σ_obs; horizontal: centred RMSE / σ_obs, negative where "
     "the model varies less than observed. Dashed circles: RMSE / σ_obs of 0.5 and 1.",
 )
-top = "0-5 m"
+k160, knf = "norkyst160", "norfjords"
+# Salinity: the reference models' bias and spread in every layer; FjordSim's sign change in the NorFjords panel.
+ref_bias_S = [norm_bias(k, k, "S", l) for k in PATTERN_REFS for l in layers_of(k, "S")]
+ref_sd_S = [sd_ratio(k, k, "S", l) for k in PATTERN_REFS for l in layers_of(k, "S")]
+fs_bias_S = {l: norm_bias(knf, "fjordsim", "S", l) for l in layers_of(knf, "S")}
+flip = min(l for l, b in fs_bias_S.items() if b < 0)
+assert min(ref_bias_S) > 0 and max(ref_sd_S) < 1
+assert all((b > 0) == (l < flip) for l, b in fs_bias_S.items())
+deep_S = max(layers_of(knf, "S"))
 page.p(
-    f"In salinity's top 20 m FjordSim correlates as well as NorKyst v3 160 m and better than the others, with nearly "
-    f"the observed variability. In the surface layer its r is "
-    f"{span([corr(k, 'fjordsim', 'S', top) for k in REFERENCES], 2)} against {plain(corr('norkyst160', 'norkyst160', 'S', top))} "
-    f"(NorKyst v3 160 m), {plain(corr('norkyst800', 'norkyst800', 'S', top))} (800 m) and "
-    f"{plain(corr('norfjords', 'norfjords', 'S', top))} (NorFjords). Its σ_model/σ_obs is "
-    f"{span([sd_ratio(k, 'fjordsim', 'S', top) for k in REFERENCES], 2)}; the reference models' are "
-    f"{plain(sd_ratio('norkyst160', 'norkyst160', 'S', top))}, {plain(sd_ratio('norkyst800', 'norkyst800', 'S', top))} and "
-    f"{plain(sd_ratio('norfjords', 'norfjords', 'S', top))}: they smooth the surface salinity. In the deep layer NorFjords "
-    f"and FjordSim correlate equally well ({plain(corr('norfjords', 'norfjords', 'S', '>50 m'))} and "
-    f"{plain(corr('norfjords', 'fjordsim', 'S', '>50 m'))})."
+    f"In salinity both reference models are too salty in every layer, by {span(ref_bias_S, 2)} σ_obs, and too smooth "
+    f"(σ_model/σ_obs {span(ref_sd_S, 2)}). FjordSim is too salty above {metres(edges[flip][0])} m "
+    f"({span([b for l, b in fs_bias_S.items() if l < flip], 2)} σ_obs) and too fresh below "
+    f"(by {span([-b for l, b in fs_bias_S.items() if l >= flip], 2)} σ_obs). Below {metres(edges[flip][0])} m it has the "
+    f"observed variability (σ_model/σ_obs {span([sd_ratio(knf, 'fjordsim', 'S', l) for l in fs_bias_S if l >= flip], 2)}, "
+    f"NorFjords' {span([sd_ratio(knf, knf, 'S', l) for l in fs_bias_S if l >= flip], 2)}), and at {layer_span(deep_S)} it "
+    f"correlates best ({plain(corr(knf, 'fjordsim', 'S', deep_S))} against {plain(corr(knf, knf, 'S', deep_S))} for NorFjords)."
 )
+# Temperature: the layers from the surface where every model is inside the 0.5 circle, and the layer from which
+# every model is too cold and too variable.
+pairs_T = [(k, m, l) for k in PATTERN_REFS for l in layers_of(k, "T") for m in ("fjordsim", k)]
+calm_T = 0
+while calm_T + 1 in edges and all(norm_rmse(k, m, "T", l) < 0.5 for k, m, l in pairs_T if l == calm_T + 1):
+    calm_T += 1
+cold = min(l for l in edges if all(norm_bias(k, m, "T", x) < 0 and sd_ratio(k, m, "T", x) > 1
+                                   for k, m, x in pairs_T if x >= l))
+fs_bias_T = [norm_bias(knf, "fjordsim", "T", l) for l in layers_of(knf, "T") if l >= cold]
+assert fs_bias_T == sorted(fs_bias_T, reverse=True)
+deep_T, deep_nk = max(layers_of(knf, "T")), max(layers_of(k160, "T"))
 page.p(
-    f"In temperature NorKyst v3 160 m correlates better than FjordSim in every layer, most in the deep layer "
-    f"({plain(corr('norkyst160', 'norkyst160', 'T', '>50 m'))} against {plain(corr('norkyst160', 'fjordsim', 'T', '>50 m'))}). "
-    f"In the deep layer every model varies too much (σ_model/σ_obs {span(deep_sd, 2)}). There FjordSim's bias is "
-    f"{plain(norm_bias('norfjords', 'fjordsim', 'T', '>50 m'))} σ_obs, NorFjords' "
-    f"{plain(norm_bias('norfjords', 'norfjords', 'T', '>50 m'))}, on the same samples."
+    f"In temperature every model is inside the 0.5 circle down to {metres(edges[calm_T][1])} m. Below "
+    f"{metres(edges[cold][0])} m every model is too cold and too variable. FjordSim's cold bias grows with depth to "
+    f"{plain(-norm_bias(knf, 'fjordsim', 'T', deep_T))} σ_obs at {layer_span(deep_T)}; NorFjords' stays at "
+    f"{span([-norm_bias(knf, knf, 'T', l) for l in layers_of(knf, 'T') if l >= cold], 2)} σ_obs, but it varies more there "
+    f"(σ_model/σ_obs {plain(sd_ratio(knf, knf, 'T', deep_T))} against FjordSim's {plain(sd_ratio(knf, 'fjordsim', 'T', deep_T))}). "
+    f"At {layer_span(deep_nk)} NorKyst v3 160 m is colder than FjordSim ({plain(norm_bias(k160, k160, 'T', deep_nk))} against "
+    f"{plain(norm_bias(k160, 'fjordsim', 'T', deep_nk))} σ_obs) and varies less ({plain(sd_ratio(k160, k160, 'T', deep_nk))} "
+    f"against {plain(sd_ratio(k160, 'fjordsim', 'T', deep_nk))})."
 )
 of_n = lambda f, m, v: f"{f(m, v)} of {len(station_pts(m, v))}"  # noqa: E731
 names = lambda xs: ", ".join(xs[:-1]) + " and " + xs[-1] if len(xs) > 1 else "".join(xs)  # noqa: E731
@@ -1322,7 +1354,7 @@ page.items(
         f"<b>Temperature:</b> NorKyst v3 160 m is better ({plain(t160['norkyst160_rmse'])} against "
         f"{plain(t160['fjordsim_rmse'])} °C); NorKyst v3 800 m and NorFjords are about even with FjordSim.",
         f"<b>Variability:</b> FjordSim has the observed range of salinity in the surface layer; the reference models "
-        f"smooth it. In the deep layer every model's temperature varies {span([(x - 1) * 100 for x in deep_sd], 0)} % too much.",
+        f"smooth it. Below {metres(deep_top)} m every model's temperature varies {span([(x - 1) * 100 for x in deep_sd], 0)} % too much.",
         "<b>Drammensfjord:</b> only FjordSim keeps the brackish surface layer and a halocline close to the observed one.",
         f"<b>Svelvik:</b> the strait's mean outflow and the depth where it turns are close to the observed ones; the "
         f"strongest currents are {100 * (1 - uq_ratio):.0f} % too weak.",
