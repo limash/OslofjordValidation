@@ -908,6 +908,11 @@ page.figure(
     f"Observed against modelled salinity (top) and temperature (bottom), coloured by region. Each model "
     f"on every sample it has, from {SPINUP}.",
 )
+page.body.append(
+    '<a class="explorer" href="scatter_explorer.html"><b>Interactive Scatter Explorer →</b>'
+    "Observed against modelled salinity and temperature for any stretch of the Oslofjord and any depth layer: "
+    "FjordSim, NorKyst v3 (160 m or 800 m) and NorFjords side by side.</a>"
+)
 page.p(
     f"Only FjordSim reproduces the brackish surface water of the Drammensfjord: samples observed below 10 g/kg "
     f"lie on the diagonal for FjordSim and at 10–30 g/kg in NorKyst v3 160 m and NorFjords ({F('scatter')}). In its "
@@ -955,11 +960,21 @@ page.figure(
     "160 m (right) on the samples both have. Numbers: depth layers from the surface, listed under the panels. "
     "Angle: correlation; radius: σ_model/σ_obs; dashed arcs: centred RMSE / σ_obs; star: observations.",
 )
+page.body.append(
+    '<a class="explorer" href="taylor_explorer.html"><b>Interactive Taylor Explorer →</b>'
+    "Correlation and variability of salinity and temperature for any stretch of the Oslofjord and any layering: "
+    "FjordSim beside NorKyst v3 160 m and NorFjords.</a>"
+)
 page.figure(
     "target",
     "figures/target.png",
     "Target diagrams, same layout. Vertical: bias / σ_obs; horizontal: centred RMSE / σ_obs, negative where "
     "the model varies less than observed. Dashed circles: RMSE / σ_obs of 0.5 and 1.",
+)
+page.body.append(
+    '<a class="explorer" href="target_explorer.html"><b>Interactive Target Explorer →</b>'
+    "Bias and centred RMSE of salinity and temperature for any stretch of the Oslofjord and any layering: "
+    "FjordSim beside NorKyst v3 160 m and NorFjords.</a>"
 )
 k160, knf = "norkyst160", "norfjords"
 # Salinity: the reference models' bias and spread in every layer; FjordSim's sign change in the NorFjords panel.

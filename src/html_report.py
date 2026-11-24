@@ -45,6 +45,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-sp
 .switch button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .switch select { font: inherit; font-size: .9rem; padding: .2rem .4rem; }
 ol.summary li { margin-bottom: .45rem; }
+a.explorer { display: block; margin: 1rem 0 1.6rem; padding: .9rem 1.2rem; border-radius: 8px; background: #eaf2fa;
+             border: 1px solid #c5d9ec; color: var(--fg); text-decoration: none; }
+a.explorer b { display: block; font-size: 1.15rem; color: var(--accent); }
+a.explorer:hover { background: #dde9f6; }
 """
 
 SWITCH_JS = """
