@@ -6,34 +6,12 @@
 #
 #   REPORT=<name> julia --project src/scatter_explorer.jl
 include("scatter_route.jl")
-using CairoMakie, Base64
+include("explorer_page.jl")
 
-const PLOTLY = "https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"
 out = joinpath(REPORT, "scatter_explorer.html")
 const THICKNESSES = [20, 10, 5, 2, 1]   # m, the uniform layers after the report's four
 # Okabe–Ito without its pale yellow: the most stations a window can hold with a colour each.
 const COLOURS = [PALETTE_HEX; "#56B4E9"; "#1F2328"]
-
-# --- JSON, enough for this page ----------------------------------------------------------------------
-json(io, x::Bool) = print(io, x)
-json(io, x::Real) = isfinite(x) ? print(io, round(x, digits = 3)) : print(io, "null")
-json(io, x::AbstractString) = print(io, '"', replace(x, "\\" => "\\\\", "\"" => "\\\""), '"')
-json(io, x::Symbol) = json(io, string(x))
-function json(io, x::Union{AbstractVector,Tuple})
-    print(io, '[')
-    for (i, v) in enumerate(x)
-        i > 1 && print(io, ','); json(io, v)
-    end
-    print(io, ']')
-end
-function json(io, x::Union{AbstractDict,NamedTuple})
-    print(io, '{')
-    for (i, k) in enumerate(keys(x))
-        i > 1 && print(io, ','); json(io, string(k)); print(io, ':'); json(io, x[k])
-    end
-    print(io, '}')
-end
-json(x) = sprint(json, x)
 
 # --- data --------------------------------------------------------------------------------------------
 route = [(area, s) for (area, ss) in ROUTE for s in ss]
@@ -55,24 +33,12 @@ deepest = maximum(p["depth"] for p in pairs)
 uniform(t) = [(name = "$(k)–$(k + t) m", lo = k, hi = k + t) for k in 0:t:floor(Int, deepest) if any(p -> k <= p["depth"] < k + t, pairs)]
 resolutions = [(name = "the report's $(length(LAYERS)) layers", layers = [(name = n, lo = lo, hi = hi) for (n, lo, hi) in reverse(LAYERS)]);
                [(name = "$t m layers", layers = uniform(t)) for t in THICKNESSES]]
-dlon, dlat = lon[2] - lon[1], lat[2] - lat[1]
-extent = (x0 = lon[1] - dlon / 2, x1 = lon[end] + dlon / 2, y0 = lat[1] - dlat / 2, y1 = lat[end] + dlat / 2)
-
-# --- the map background: the model depth, light, as a PNG ------------------------------------------------
-background = mktempdir() do dir
-    fig = Figure(size = (length(lon), length(lat)), figure_padding = 0)
-    ax = Axis(fig[1, 1]); hidedecorations!(ax); hidespines!(ax)
-    heatmap!(ax, lon, lat, depth, colormap = cgrad([RGBf(0.93, 0.95, 0.97), RGBf(0.55, 0.62, 0.70)]), colorrange = (0, 350),
-        nan_color = RGBf(0.97, 0.96, 0.93))
-    limits!(ax, extent.x0, extent.x1, extent.y0, extent.y1)
-    path = joinpath(dir, "map.png"); save(path, fig, px_per_unit = 2)
-    "data:image/png;base64," * base64encode(read(path))
-end
+extent = map_extent(lon, lat)
 
 data = (names = station_names, stations = stations, resolutions = resolutions, samples = samples, extent = extent,
         route = [(area = a, station = index[s]) for (a, s) in route],
         final = (area = first(FINAL), stations = [index[s] for s in last(FINAL)]), colours = COLOURS,
-        background = background, aspect = 1 / cosd(59.4))
+        background = map_background(lon, lat, depth), aspect = 1 / cosd(59.4))
 note = NORKYST_NOTE * " NIVA and IMR casts from $(Date(SPINUP)); NorFjords ends on 2026-06-30. Run $(CONFIG["run"])."
 
 page = """
