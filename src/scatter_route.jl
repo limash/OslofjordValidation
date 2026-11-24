@@ -1,7 +1,7 @@
 # What `scatter_video.jl` and `scatter_explorer.jl` share: the route through the Oslofjord, the depth layers,
-# and observed against modelled S and T at every station on it (`taylor_explorer.jl` takes the route and the map). NIVA casts (`ctd_pairs.csv`) and IMR's
-# (`imr_pairs.csv`), scored from SPINUP. NorKyst v3 is merged here: the 160 m nest where it covers a station,
-# else the 800 m run; `grid_<var>` names which one each sample comes from.
+# and observed against modelled S and T at every station on it (`pattern_explorer.jl` takes the route and the
+# map). NIVA casts (`ctd_pairs.csv`) and IMR's (`imr_pairs.csv`), scored from SPINUP. NorKyst v3 is merged here:
+# the 160 m nest where it covers a station, else the 800 m run; `grid_<var>` names which one each sample comes from.
 include("common.jl")
 
 const ROUTE = [

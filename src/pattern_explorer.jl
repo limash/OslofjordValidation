@@ -1,12 +1,12 @@
-# The Taylor diagrams of the report (Fig. 4, `ctd.jl`) as an interactive page, `output/<report>/taylor_explorer.html`.
-# Sliders pick the vertical resolution (the figure's layers on FjordSim's cell faces, or uniform layers 20 to 1 m
+# The Taylor and target diagrams of the report (Figs. 4 and 5, `ctd.jl`) as interactive pages,
+# `output/<report>/taylor_explorer.html` and `target_explorer.html`, alike but for the diagram. Sliders pick the vertical resolution (the figure's layers on FjordSim's cell faces, or uniform layers 20 to 1 m
 # thick; every layer is one point per model), the number of stations in the window, from one to all, and the
 # window's place along the route of `scatter_route.jl`, which ends on the Drammensfjord. A map shows the window's
 # stations. As in the figure: the NIVA casts from SPINUP, FjordSim beside NorKyst v3 160 m and beside NorFjords
 # 160 m on the samples both have, and with every station in the window the figure itself. The statistics are
 # computed on the page from `ctd_pairs.csv`; plotly.js comes from a CDN.
 #
-#   REPORT=<name> julia --project src/taylor_explorer.jl
+#   REPORT=<name> julia --project src/pattern_explorer.jl
 include("scatter_route.jl")
 include("explorer_page.jl")
 using CairoMakie: Makie
@@ -15,7 +15,6 @@ const THICKNESSES = [20, 10, 5, 2, 1]   # m, the uniform layers after the figure
 const MIN_STATIONS = 5   # the figure's; a smaller window needs every one of its stations
 const MIN_SAMPLES = 10
 const REFS = ("norkyst160", "norfjords")
-out = joinpath(REPORT, "taylor_explorer.html")
 
 # --- samples, by depth so a layer is one slice ------------------------------------------------------------
 rows = [r for r in readcsv(joinpath(REPORT_DATA, "ctd_pairs.csv")) if DateTime(r["time"]) >= SPINUP && !ferrybox(r["station"])]
@@ -32,7 +31,7 @@ cell_faces = -NCDataset(ds -> Float64.(ds["z_faces"][:]), joinpath(RUN_SETUP, "b
 edges = [0.0; [cell_faces[argmin(abs.(cell_faces .- d))] for d in (2, 5, 10, 20, 30, 50, 75, 100, 130)]]
 metres(z) = @sprintf("%g", round(z, digits = 1))
 deepest = floor(Int, maximum(samples.d))
-resolutions = [(name = "Fig. 4's $(length(edges) - 1) layers", layers = [(name = "$(metres(edges[l]))–$(metres(edges[l + 1])) m",
+resolutions(figure) = [(name = "Fig. $figure's $(length(edges) - 1) layers", layers = [(name = "$(metres(edges[l]))–$(metres(edges[l + 1])) m",
                 lo = edges[l], hi = edges[l + 1]) for l in 1:length(edges) - 1]);
                [(name = "$t m layers", layers = [(name = "$(k)–$(k + t) m", lo = k, hi = k + t) for k in 0:t:deepest]) for t in THICKNESSES]]
 
@@ -41,22 +40,100 @@ route = [(area = a, station = index[s]) for (a, ss) in [ROUTE; FINAL] for s in s
 length(unique(r.station for r in route)) == length(station_names) || error("a NIVA station is not on the route")
 
 hexcolour(k) = "#" * Makie.Colors.hex(Makie.to_color(COLORS[k]))
-data = (names = station_names, samples = samples, resolutions = resolutions,
+data = (names = station_names, samples = samples,
         models = [(key = k, label = LABELS[k], colour = hexcolour(k)) for k in ("fjordsim", REFS...)],
         route = route, final = (area = first(FINAL), stations = [index[s] for s in last(FINAL)]),
         stations = [(x = station_position[s][1], y = station_position[s][2]) for s in station_names],
         extent = map_extent(lon, lat), background = map_background(lon, lat, depth), aspect = 1 / cosd(59.4))
+# Each diagram's JS: `place(stats)` gives a point's two coordinates and whether it lies beyond the axis and is drawn at
+# its edge, `coords` makes them a trace, `guides()` the fixed lines and `layout(variable)` the axes.
+const TAYLOR_JS = """
+const RMAX = 2, CORR = [1, 0.99, 0.95, 0.9, 0.8, 0.6, 0.4, 0.2, 0];
+const DIAGRAM = {
+  // angle arccos(r), radius σ_model / σ_obs
+  place: x => {
+    const th = deg(Math.acos(Math.max(-1, Math.min(1, x.r))));
+    return [Math.min(x.sd, RMAX), Math.min(th, 90), th > 90 || x.sd > RMAX];
+  },
+  coords: (a, b) => ({type: "scatterpolar", r: a, theta: b}),
+  /** Centred-RMSE arcs around the star, the σ_model = σ_obs arc, the star. */
+  guides: () => {
+    const out = [];
+    for (const e of [0.25, 0.5, 0.75, 1]) {
+      const rr = [], th = [];
+      for (let k = 0; k <= 200; k++) {
+        const p = Math.PI * k / 200, x = 1 + e * Math.cos(p), y = e * Math.sin(p);
+        rr.push(Math.hypot(x, y)); th.push(deg(Math.atan2(y, x)));
+      }
+      out.push({type: "scatterpolar", mode: "lines", r: rr, theta: th, hoverinfo: "skip", line: {color: "#b0b7bf", width: 1, dash: "dash"}});
+    }
+    const q = Array.from({length: 91}, (_, k) => k);
+    out.push({type: "scatterpolar", mode: "lines", r: q.map(() => 1), theta: q, hoverinfo: "skip", line: {color: "#6e7781", width: 1}});
+    out.push({type: "scatterpolar", mode: "markers", r: [1], theta: [0], hoverinfo: "skip", cliponaxis: false,
+              marker: {symbol: "star", size: 16, color: "#1f2328"}});
+    return out;
+  },
+  layout: () => ({
+    margin: {l: 40, r: 40, t: 50, b: 30},
+    polar: {sector: [0, 90], bgcolor: "#fff",
+      radialaxis: {range: [0, RMAX], tickvals: [0, 0.5, 1, 1.5, 2], angle: 0, tickangle: 0, gridcolor: "#eaeef2", linecolor: "#8c959f"},
+      angularaxis: {rotation: 0, direction: "counterclockwise", tickvals: CORR.map(c => deg(Math.acos(c))), ticktext: CORR.map(String),
+                    gridcolor: "#eaeef2", linecolor: "#8c959f"}},
+    annotations: [{text: "correlation", showarrow: false, xref: "paper", yref: "paper", x: 0.82, y: 0.86, textangle: 45,
+                   font: {size: 12, color: "#5b636d"}}],
+  }),
+};
+"""
+const TARGET_JS = """
+const LIM = 2;
+const DIAGRAM = {
+  // x = sign(σ_model − σ_obs) × centred RMSE / σ_obs, y = bias / σ_obs
+  place: x => {
+    const px = (x.sd >= 1 ? 1 : -1) * x.crmse, py = x.bias, c = z => Math.max(-LIM, Math.min(LIM, z));
+    return [c(px), c(py), Math.max(Math.abs(px), Math.abs(py)) > LIM];
+  },
+  coords: (a, b) => ({type: "scatter", x: a, y: b}),
+  /** Circles at RMSE / σ_obs of 0.5 and 1. */
+  guides: () => [0.5, 1].map(e => {
+    const p = Array.from({length: 201}, (_, k) => 2 * Math.PI * k / 200);
+    return {type: "scatter", mode: "lines", x: p.map(q => e * Math.cos(q)), y: p.map(q => e * Math.sin(q)), hoverinfo: "skip",
+            line: {color: "#8c959f", width: 1, dash: "dash"}};
+  }),
+  /** Up is a positive bias, right a larger spread than observed: each quadrant named in its corner. */
+  layout: v => {
+    const [high, low] = v === "S" ? ["too salty", "too fresh"] : ["too warm", "too cold"], e = LIM - 0.06;
+    const corner = (x, y, text) => ({x, y, xref: "x", yref: "y", text: `<i>\${text}</i>`, showarrow: false,
+      xanchor: x < 0 ? "left" : "right", yanchor: y > 0 ? "top" : "bottom", align: x < 0 ? "left" : "right",
+      font: {size: 11, color: "#5b636d"}});
+    const axis = {range: [-LIM, LIM], dtick: 1, zeroline: true, zerolinecolor: "#d0d7de", gridcolor: "#eaeef2",
+                  linecolor: "#8c959f", mirror: true, ticks: "outside", constrain: "domain"};
+    return {margin: {l: 56, r: 16, t: 50, b: 50}, plot_bgcolor: "#fff",
+      xaxis: {...axis, title: {text: "sign(σ_model − σ_obs) × centred RMSE / σ_obs", standoff: 4}},
+      yaxis: {...axis, scaleanchor: "x", title: {text: "bias / σ_obs", standoff: 4}},
+      annotations: [corner(-e, e, high + ",<br>too smooth"), corner(e, e, high + ",<br>too variable"),
+                    corner(-e, -e, low + ",<br>too smooth"), corner(e, -e, low + ",<br>too variable")]};
+  },
+};
+"""
+DIAGRAMS = [
+    (file = "taylor_explorer.html", figure = 4, name = "Taylor", js = TAYLOR_JS, legend = "<span>★ observations</span>",
+     reading = "Angle: correlation; radius: σ_model / σ_obs; dashed arcs: centred RMSE / σ_obs of 0.25 to 1."),
+    (file = "target_explorer.html", figure = 5, name = "Target", js = TARGET_JS, legend = "",
+     reading = "Right: σ_model > σ_obs; up: a positive bias; the distance to the origin is the RMSE / σ_obs (dashed circles: 0.5 and 1)."),
+]
+
 note = "NIVA casts from $(Date(SPINUP)); NorFjords ends on 2026-06-30. Run $(CONFIG["run"]). In each panel FjordSim and " *
        "the reference model share each layer's samples and σ_obs. A layer needs $MIN_SAMPLES samples and $MIN_STATIONS " *
        "stations, or every station of a smaller window."
 
+for d in DIAGRAMS
 page = """
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Taylor diagram explorer</title>
+<title>$(d.name) diagram explorer</title>
 <script src="$PLOTLY"></script>
 <style>
   :root { --ink: #1f2328; --muted: #5b636d; --surface: #ffffff; }
@@ -83,13 +160,13 @@ page = """
 </style>
 </head>
 <body>
-<h1>Taylor diagrams by depth layer</h1>
+<h1>$(d.name) diagrams by depth layer</h1>
 <p class="note">$note</p>
 <div class="controls">
   <div class="control">
     <label for="res">Vertical resolution</label>
     <output id="res-out"></output>
-    <input id="res" type="range" min="0" max="$(length(resolutions) - 1)" step="1" value="0">
+    <input id="res" type="range" min="0" max="$(length(resolutions(d.figure)) - 1)" step="1" value="0">
   </div>
   <div class="control">
     <label for="width">Stations in the window</label>
@@ -103,28 +180,27 @@ page = """
   </div>
 </div>
 <div class="legend">$(join(["<span><i style=\"background:$(m.colour)\"></i>$(m.label)</span>" for m in data.models]))
-  <span>★ observations</span></div>
-<p class="note">Angle: correlation; radius: σ_model / σ_obs; dashed arcs: centred RMSE / σ_obs of 0.25 to 1.</p>
+  $(d.legend)</div>
+<p class="note">$(d.reading)</p>
 <div class="layout">
   <div class="panel" id="p-S-norkyst160"></div><div class="panel" id="p-S-norfjords"></div><div id="map"></div>
   <div class="panel" id="p-T-norkyst160"></div><div class="panel" id="p-T-norfjords"></div>
 </div>
 <p id="layers"></p>
 <script>
-const DATA = $(json(data));
-const RMAX = 2, MIN_STATIONS = $MIN_STATIONS, MIN_SAMPLES = $MIN_SAMPLES;
+const DATA = $(json((; data..., resolutions = resolutions(d.figure))));
+const MIN_STATIONS = $MIN_STATIONS, MIN_SAMPLES = $MIN_SAMPLES;
 const PICKED = "#CC79A7";   // the window's stations on the map, apart from the models' colours
 const LABELLED = 12;        // the most stations named on the map
 const LETTER = {fjordsim: "f", norkyst160: "k", norfjords: "n"};
 const MODEL = Object.fromEntries(DATA.models.map(m => [m.key, m]));
 const VARS = {S: "Salinity", T: "Temperature"};
-const CORR = [1, 0.99, 0.95, 0.9, 0.8, 0.6, 0.4, 0.2, 0];
 const MILESTONES = [0, 10, 20, 50, 100];   // the layers labelled at fine resolution
 const FONT = {family: "system-ui, -apple-system, 'Segoe UI', sans-serif", size: 12, color: "#1f2328"};
 const deg = x => x * 180 / Math.PI;
 const el = id => document.getElementById(id);
 const D = DATA.samples;
-
+$(d.js)
 /** The first sample at or below depth `z` (the samples are sorted by depth). */
 function lowerBound(z) {
   let a = 0, b = D.d.length;
@@ -137,7 +213,7 @@ function stopsOf(width) {
   const R = DATA.route, out = [];
   for (let k = 0; k + width <= R.length; k++) {
     const w = R.slice(k, k + width);
-    out.push({label: width === R.length ? "All NIVA stations, as Fig. 4" : [...new Set(w.map(r => r.area))].join(" → "),
+    out.push({label: width === R.length ? "All NIVA stations, as Fig. $(d.figure)" : [...new Set(w.map(r => r.area))].join(" → "),
               stations: [...new Set(w.map(r => r.station))]});
   }
   if (width !== DATA.final.stations.length) out.push({label: DATA.final.area, stations: DATA.final.stations});
@@ -177,26 +253,6 @@ function stats(layer, v, ref, need) {
   return {n, stations: st.size, fjordsim: one(f), [ref]: one(r)};
 }
 
-/** The fixed parts of a Taylor diagram: centred-RMSE arcs around the star, the σ_model = σ_obs arc, the star. */
-function guides() {
-  const out = [];
-  for (const e of [0.25, 0.5, 0.75, 1]) {
-    const rr = [], th = [];
-    for (let k = 0; k <= 200; k++) {
-      const p = Math.PI * k / 200, x = 1 + e * Math.cos(p), y = e * Math.sin(p);
-      rr.push(Math.hypot(x, y)); th.push(deg(Math.atan2(y, x)));
-    }
-    out.push({type: "scatterpolar", mode: "lines", r: rr, theta: th, hoverinfo: "skip", showlegend: false,
-              line: {color: "#b0b7bf", width: 1, dash: "dash"}});
-  }
-  const q = Array.from({length: 91}, (_, k) => k);
-  out.push({type: "scatterpolar", mode: "lines", r: q.map(() => 1), theta: q, hoverinfo: "skip", showlegend: false,
-            line: {color: "#6e7781", width: 1}});
-  out.push({type: "scatterpolar", mode: "markers", r: [1], theta: [0], hoverinfo: "skip", showlegend: false, cliponaxis: false,
-            marker: {symbol: "star", size: 16, color: "#1f2328"}});
-  return out;
-}
-
 function draw() {
   const res = DATA.resolutions[+el("res").value], few = res.layers.length <= 12;
   const stop = stops[+el("stop").value], need = Math.min(MIN_STATIONS, stop.stations.length);
@@ -208,39 +264,32 @@ function draw() {
   inWindow.fill(0); stop.stations.forEach(i => inWindow[i] = 1);
   for (const v of ["S", "T"]) for (const ref of ["norkyst160", "norfjords"]) {
     const rows = res.layers.map((l, i) => ({l, i, s: stats(l, v, ref, need)})).filter(x => x.s);
-    const traces = guides();
+    const traces = DIAGRAM.guides();
     for (const key of [ref, "fjordsim"]) {   // FjordSim on top
       const m = MODEL[key];
       const pts = rows.map(({l, i, s}) => {
-        const x = s[key], th = deg(Math.acos(Math.max(-1, Math.min(1, x.r)))), out = th > 90 || x.sd > RMAX;
+        const x = s[key], [a, b, out] = DIAGRAM.place(x);
         const label = few ? String(i + 1) : (MILESTONES.includes(l.lo) ? l.lo + " m" : "");
-        return {th: Math.min(th, 90), rho: Math.min(x.sd, RMAX), out, label,
+        return {a, b, out, label,
           hover: `<b>\${m.label}</b><br>\${few ? "layer " + (i + 1) + ": " : ""}\${l.name}<br>\${s.stations} stations, \${s.n} samples<br>` +
                  `r \${x.r.toFixed(3)}, σ_model/σ_obs \${x.sd.toFixed(2)}<br>centred RMSE/σ_obs \${x.crmse.toFixed(2)}, ` +
                  `bias/σ_obs \${x.bias.toFixed(2)}` + (out ? "<br>beyond the axis: drawn at its edge" : "")};
       });
-      traces.push({type: "scatterpolar", mode: "lines+markers+text", cliponaxis: false,
-        r: pts.map(p => p.rho), theta: pts.map(p => p.th), text: pts.map(p => p.label),
+      traces.push({...DIAGRAM.coords(pts.map(p => p.a), pts.map(p => p.b)), mode: "lines+markers+text", cliponaxis: false,
+        text: pts.map(p => p.label),
         textposition: few ? "middle center" : "top right",
         textfont: few ? {color: "#ffffff", size: 11} : {color: "#1f2328", size: 11},
         hovertext: pts.map(p => p.hover), hoverinfo: "text", showlegend: false,
         line: {color: m.colour, width: few ? 2 : 1.5},
         marker: {color: m.colour, size: few ? 19 : 7, line: {color: "#1f2328", width: few ? 0.6 : 0.3}}});
       const ringed = pts.filter(p => p.out);
-      if (ringed.length) traces.push({type: "scatterpolar", mode: "markers", hoverinfo: "skip", showlegend: false, cliponaxis: false,
-        r: ringed.map(p => p.rho), theta: ringed.map(p => p.th),
+      if (ringed.length) traces.push({...DIAGRAM.coords(ringed.map(p => p.a), ringed.map(p => p.b)), mode: "markers",
+        hoverinfo: "skip", showlegend: false, cliponaxis: false,
         marker: {symbol: "circle-open", size: few ? 28 : 14, color: m.colour, line: {width: 2.5}}});
     }
     Plotly.react(`p-\${v}-\${ref}`, traces, {
       title: {text: `<b>\${VARS[v]}</b>: FjordSim and \${MODEL[ref].label}`, font: {size: 14}}, font: FONT,
-      margin: {l: 40, r: 40, t: 50, b: 30}, paper_bgcolor: "#fff", showlegend: false,
-      polar: {sector: [0, 90], bgcolor: "#fff",
-        radialaxis: {range: [0, RMAX], tickvals: [0, 0.5, 1, 1.5, 2], angle: 0, tickangle: 0, gridcolor: "#eaeef2",
-                     linecolor: "#8c959f"},
-        angularaxis: {rotation: 0, direction: "counterclockwise", tickvals: CORR.map(c => deg(Math.acos(c))),
-                      ticktext: CORR.map(String), gridcolor: "#eaeef2", linecolor: "#8c959f"}},
-      annotations: [{text: "correlation", showarrow: false, xref: "paper", yref: "paper", x: 0.82, y: 0.86,
-                     textangle: 45, font: {size: 12, color: "#5b636d"}}],
+      paper_bgcolor: "#fff", showlegend: false, ...DIAGRAM.layout(v),
     }, {responsive: true, displayModeBar: false});
   }
   drawMap(stop);
@@ -290,5 +339,7 @@ draw();
 </body>
 </html>
 """
+out = joinpath(REPORT, d.file)
 write(out, page)
 println(out, "  ", round(filesize(out) / 1e6, digits = 1), " MB")
+end
