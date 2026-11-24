@@ -4,6 +4,7 @@
 #   extract   bin/extract_run.sh there, and its extract.jld2 (or, for the live run, its extract_<tag>_part<N>.jld2)
 #             back: ~20 MB instead of ~175 GB of 3D snapshots
 #   videos    bin/surface_videos.sh there, and its MP4s back: ~50 MB a part instead of ~1.1 GB
+#   ferry     bin/ferry_fields.sh there, and one day's hourly surface T and S back: ~60 MB instead of ~1.1 GB
 # The VM gets the code and the few small inputs these steps read, installs Julia on first use and runs the
 # step detached, so it goes on if this session ends. Every minute the step's last log line is printed. When
 # it ends, the results missing here are copied down and the VM is powered off. A VM nobody uses powers
@@ -12,6 +13,7 @@
 #
 #   bin/vm_run.sh <report> extract [--vm N]
 #   bin/vm_run.sh <report> videos [--vm N] [part numbers...]   (default: the parts without videos here)
+#   bin/vm_run.sh <report> ferry [--vm N] <yyyy-mm-dd>
 #
 # --vm N picks PREP_VM_PREFIX-N (default 1); one step per VM at a time, so several VMs can share the videos.
 # The project, VMs and bucket are FjordSim's, from its gcp/config.env (FJORDSIM_GCP, default
@@ -53,8 +55,12 @@ videos)
     [ -n "$parts" ] || { echo "every part has its videos here"; exit 0; }
     command="bin/surface_videos.sh $report $parts"
     results="output/$report/video/surface/*.mp4" ;;
+ferry)
+    [ -f "$PROJECT/$data/ferry_fields_$1.jld2" ] && { echo "$data/ferry_fields_$1.jld2 exists"; exit 0; }
+    command="bin/ferry_fields.sh $report $1"
+    results="$data/ferry_fields_$1.jld2" ;;
 *)
-    echo "the step is extract or videos" >&2; exit 1 ;;
+    echo "the step is extract, videos or ferry" >&2; exit 1 ;;
 esac
 
 vm=$PREP_VM_PREFIX-$n

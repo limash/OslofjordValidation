@@ -92,6 +92,7 @@ region `europe-west4`, where reading the bucket is free) and copies down only th
 |---|---|---|
 | `bin/vm_run.sh <report> extract` | `bin/extract_run.sh`: the 3D snapshots | `extract.jld2`, ~20 MB (live run: `extract_<tag>_part<N>.jld2`) |
 | `bin/vm_run.sh <report> videos [--vm N] [parts...]` | `bin/surface_videos.sh`: the surface snapshots | the MP4s, ~50 MB a part |
+| `bin/vm_run.sh <report> ferry [--vm N] <yyyy-mm-dd>` | `bin/ferry_fields.sh`: the day's surface part | `ferry_fields_<day>.jld2`, the day's hourly surface T and S, ~60 MB |
 
 - **What it does:** it starts the VM with FjordSim's `gcp/fjordsim-gcp up --prep N` (job mode; the VM's
   disk keeps what earlier steps left there). Then it ships the code and the small inputs the step reads,
@@ -116,6 +117,8 @@ Videos go in `output/<report>/video/`; the page plays them from there.
 ```bash
 REPORT=<report> julia --project src/section_video.jl [fps]   # the Drammensfjord section, one frame per day
 bin/vm_run.sh <report> videos [--vm N] [part numbers...]     # surface T, S, elevation and currents per monthly part
+bin/vm_run.sh <report> ferry <yyyy-mm-dd>                    # then:
+REPORT=<report> julia --project src/ferry_video.jl <yyyy-mm-dd> [fps]   # Color Fantasy's crossings that day
 ```
 
 - **Section video:** made from the run's hourly section file (`stations_section_<tag>.nc`) and the D-2
@@ -125,6 +128,11 @@ bin/vm_run.sh <report> videos [--vm N] [part numbers...]     # surface T, S, ele
   (`snapshots_surface_<tag>_part<N>.jld2`). It is copied from FjordSim's `scripts/surface_videos.jl`, but
   takes the run's `bathymetry.nc` and `report.toml`'s `run_start` instead of the run's setup file. Each part
   is about 1.1 GB and is pulled, drawn and deleted in turn on the VM, taking about 27 min.
+- **Ferry videos:** made by `src/ferry_video.jl`, one MP4 per MS Color Fantasy crossing of the day
+  (`ferry_<day>_northbound.mp4`, `..._southbound.mp4`). Each shows the surface T and S maps with the ship's
+  track coloured by the FerryBox values. Below each map, the FerryBox and FjordSim's top cell along the track,
+  each FjordSim value taken when the ship passes. The day's hourly fields are interpolated to each FerryBox
+  minute, one frame per minute, 12 frames per second by default.
 
 ### `report.toml`
 
