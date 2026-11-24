@@ -121,6 +121,9 @@ DIAGRAMS = [
     (file = "target_explorer.html", figure = 5, name = "Target", js = TARGET_JS, legend = "",
      reading = "Right: σ_model > σ_obs; up: a positive bias; the distance to the origin is the RMSE / σ_obs (dashed circles: 0.5 and 1)."),
 ]
+# The sliders' starting values: 1 m layers (the figure's layers are index 0, then THICKNESSES) and 3 stations.
+const START_RES = findfirst(==(1), THICKNESSES)
+const START_WIDTH = 3
 
 note = "NIVA casts from $(Date(SPINUP)); NorFjords ends on 2026-06-30. Run $(CONFIG["run"]). In each panel FjordSim and " *
        "the reference model share each layer's samples and σ_obs. A layer needs $MIN_SAMPLES samples and $MIN_STATIONS " *
@@ -166,12 +169,12 @@ page = """
   <div class="control">
     <label for="res">Vertical resolution</label>
     <output id="res-out"></output>
-    <input id="res" type="range" min="0" max="$(length(resolutions(d.figure)) - 1)" step="1" value="0">
+    <input id="res" type="range" min="0" max="$(length(resolutions(d.figure)) - 1)" step="1" value="$START_RES">
   </div>
   <div class="control">
     <label for="width">Stations in the window</label>
     <output id="width-out"></output>
-    <input id="width" type="range" min="1" max="$(length(route))" step="1" value="$(length(route))">
+    <input id="width" type="range" min="1" max="$(length(route))" step="1" value="$START_WIDTH">
   </div>
   <div class="control">
     <label for="stop">Region: the window's place along the route, Inner Oslofjord to Drammensfjord</label>
