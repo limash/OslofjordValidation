@@ -277,23 +277,43 @@ corr = lambda k, m, v, l: pat(k, m, v, l, "correlation")  # noqa: E731
 sd_ratio = lambda k, m, v, l: pat(k, m, v, l, "model_std") / pat(k, m, v, l, "obs_std")  # noqa: E731
 norm_bias = lambda k, m, v, l: pat(k, m, v, l, "bias") / pat(k, m, v, l, "obs_std")  # noqa: E731
 norm_rmse = lambda k, m, v, l: (
-    math.hypot(pat(k, m, v, l, "centred_rmse"), pat(k, m, v, l, "bias")) / pat(k, m, v, l, "obs_std")
+    math.hypot(pat(k, m, v, l, "centred_rmse"), pat(k, m, v, l, "bias"))
+    / pat(k, m, v, l, "obs_std")
 )  # noqa: E731
-edges = {int(r["layer"]): (float(r["top_m"]), float(r["bottom_m"])) for r in pattern.values()}
+edges = {
+    int(r["layer"]): (float(r["top_m"]), float(r["bottom_m"])) for r in pattern.values()
+}
 metres = lambda z: f"{z:g}"  # noqa: E731
 layer_span = lambda l: f"{metres(edges[l][0])}–{metres(edges[l][1])} m"  # noqa: E731
 # Temperature in the layers from 50 m down: every model's σ_model/σ_obs.
-deep_layers = {k: [l for l in layers_of(k, "T") if edges[l][0] >= 50] for k in PATTERN_REFS}
+deep_layers = {
+    k: [l for l in layers_of(k, "T") if edges[l][0] >= 50] for k in PATTERN_REFS
+}
 deep_top = min(edges[l][0] for k in PATTERN_REFS for l in deep_layers[k])
-deep_sd = [sd_ratio(k, m, "T", l) for k in PATTERN_REFS for l in deep_layers[k] for m in ("fjordsim", k)]
+deep_sd = [
+    sd_ratio(k, m, "T", l)
+    for k in PATTERN_REFS
+    for l in deep_layers[k]
+    for m in ("fjordsim", k)
+]
 # Target per station (target_stations.csv): each model on every cast it has, one point per station.
 per_station = read("target_stations.csv")
-station_pts = lambda m, v: [r for r in per_station if r["model"] == m and r["variable"] == v]  # noqa: E731
-inside = lambda m, v: sum(math.hypot(float(r["x"]), float(r["y"])) < 1 for r in station_pts(m, v))  # noqa: E731
+station_pts = lambda m, v: [
+    r for r in per_station if r["model"] == m and r["variable"] == v
+]  # noqa: E731
+inside = lambda m, v: sum(
+    math.hypot(float(r["x"]), float(r["y"])) < 1 for r in station_pts(m, v)
+)  # noqa: E731
 too_high = lambda m, v: sum(float(r["y"]) > 0 for r in station_pts(m, v))  # noqa: E731
 median_bias = lambda m, v: statistics.median(float(r["y"]) for r in station_pts(m, v))  # noqa: E731
-too_variable = lambda m, v: [r["station"] for r in station_pts(m, v) if float(r["x"]) > 0]  # noqa: E731
-outside = lambda m, v: [r["station"] for r in station_pts(m, v) if math.hypot(float(r["x"]), float(r["y"])) >= 1]  # noqa: E731
+too_variable = lambda m, v: [
+    r["station"] for r in station_pts(m, v) if float(r["x"]) > 0
+]  # noqa: E731
+outside = lambda m, v: [
+    r["station"]
+    for r in station_pts(m, v)
+    if math.hypot(float(r["x"]), float(r["y"])) >= 1
+]  # noqa: E731
 one_cast = {s for s in scored if len({t for st, t in casts if st == s}) == 1}
 
 
@@ -915,7 +935,8 @@ page.body.append(
 )
 page.p(
     f"Only FjordSim reproduces the brackish surface water of the Drammensfjord: samples observed below 10 g/kg "
-    f"lie on the diagonal for FjordSim and at 10–30 g/kg in NorKyst v3 160 m and NorFjords ({F('scatter')}). In its "
+    f"lie on the diagonal for FjordSim and at 10–30 g/kg in NorKyst v3 160 m and NorFjords ({F('scatter')}, "
+    f"check the Drammensfjord in Interactive Scatter Explorer). In its "
     f"surface layer the salinity bias is {signed(skill('norkyst160', 'S', '0-5 m', dr)['fjordsim_bias'], 1)} g/kg in "
     f"FjordSim, NorKyst v3 160 m {signed(skill('norkyst160', 'S', '0-5 m', dr)['norkyst160_bias'], 1)} and NorFjords "
     f"{signed(skill('norfjords', 'S', '0-5 m', dr)['norfjords_bias'], 1)} g/kg."
@@ -924,19 +945,17 @@ page.p(
 page.h3("Taylor and target diagrams")
 page.p(
     f'Both diagrams (<a href="#references">Taylor, 2001</a>; <a href="#references">Jolliff et al., 2009</a>) score '
-    f"{len(edges)} depth layers, FjordSim beside one 160 m reference model on the samples both have, so within a panel "
-    f"both share each layer's samples and σ_obs. The layers' edges lie on FjordSim's cell faces "
-    f"({', '.join(metres(edges[l][0]) for l in sorted(edges))} and {metres(edges[max(edges)][1])} m). A layer with fewer "
-    f"than five stations is left out, so the NorKyst v3 160 m panels end at "
-    f"{metres(edges[max(layers_of('norkyst160', 'T'))][1])} m. Every statistic is divided by the observed standard deviation σ_obs of those samples. In the Taylor diagram "
+    f"{len(edges)} depth layers, FjordSim beside NorKyst and NorFjords on the samples both have, so within a panel "
+    f"both share each layer's samples and σ_obs. "
+    f"Every statistic is divided by the observed standard deviation σ_obs of those samples. In the Taylor diagram "
     f"({F('taylor')}) the angle is the correlation r and the radius σ_model/σ_obs. The distance to the star "
     f"(the observations) is the centred RMSE, the RMSE with the bias removed. In the target diagram ({F('target')}) "
     f"the vertical axis is the bias, the horizontal one the centred RMSE, negative where the model varies less "
     f"than observed. The distance to the origin is the RMSE; inside the unit circle a model beats the observed mean."
 )
 page.p(
-    "Each column scores different stations (Table 6). σ_obs changes with the stations, and the same error lies "
-    "farther out where it is small."
+    f"Each column in the ({F('taylor')}, {F('target')}) scores different stations (Table 6). σ_obs changes with the "
+    "stations, and the same error lies farther out where it is small."
 )
 page.table(
     ["Column", "Inner Oslofjord", "Drammensfjord", "Outer fjord"],
@@ -996,32 +1015,61 @@ page.p(
 )
 # Temperature: the layers from the surface where every model is inside the 0.5 circle, and the layer from which
 # every model is too cold and too variable.
-pairs_T = [(k, m, l) for k in PATTERN_REFS for l in layers_of(k, "T") for m in ("fjordsim", k)]
+pairs_T = [
+    (k, m, l) for k in PATTERN_REFS for l in layers_of(k, "T") for m in ("fjordsim", k)
+]
 calm_T = 0
-while calm_T + 1 in edges and all(norm_rmse(k, m, "T", l) < 0.5 for k, m, l in pairs_T if l == calm_T + 1):
+while calm_T + 1 in edges and all(
+    norm_rmse(k, m, "T", l) < 0.5 for k, m, l in pairs_T if l == calm_T + 1
+):
     calm_T += 1
-cold = min(l for l in edges if all(norm_bias(k, m, "T", x) < 0 and sd_ratio(k, m, "T", x) > 1
-                                   for k, m, x in pairs_T if x >= l))
-fs_bias_T = [norm_bias(knf, "fjordsim", "T", l) for l in layers_of(knf, "T") if l >= cold]
+cold = min(
+    l
+    for l in edges
+    if all(
+        norm_bias(k, m, "T", x) < 0 and sd_ratio(k, m, "T", x) > 1
+        for k, m, x in pairs_T
+        if x >= l
+    )
+)
+fs_bias_T = [
+    norm_bias(knf, "fjordsim", "T", l) for l in layers_of(knf, "T") if l >= cold
+]
 assert fs_bias_T == sorted(fs_bias_T, reverse=True)
 deep_T, deep_nk = max(layers_of(knf, "T")), max(layers_of(k160, "T"))
 # The layer where NorKyst v3 160 m's temperature correlation leads FjordSim's most; it leads in every layer.
-r_lead = {l: corr(k160, k160, "T", l) - corr(k160, "fjordsim", "T", l) for l in layers_of(k160, "T")}
+r_lead = {
+    l: corr(k160, k160, "T", l) - corr(k160, "fjordsim", "T", l)
+    for l in layers_of(k160, "T")
+}
 assert min(r_lead.values()) > 0
 widest = max(r_lead, key=r_lead.get)
 # That layer's samples split by region: NorKyst v3 160 m leads in the Inner Oslofjord, FjordSim in the Drammensfjord,
 # and the layer has no other region.
 lo, hi = edges[widest]
-in_widest = [r for r in PAIRS if lo <= float(r["depth"]) < hi
-             and all(math.isfinite(float(r[f"{m}_T"])) for m in ("obs", "fjordsim", k160))]
+in_widest = [
+    r
+    for r in PAIRS
+    if lo <= float(r["depth"]) < hi
+    and all(math.isfinite(float(r[f"{m}_T"])) for m in ("obs", "fjordsim", k160))
+]
 region_r = {
-    g: {m: statistics.correlation([float(r["obs_T"]) for r in xs], [float(r[f"{m}_T"]) for r in xs])
-        for m in ("fjordsim", k160)}
-    for g, xs in (("inner", [r for r in in_widest if r["station"] in INNER]),
-                  ("drammen", [r for r in in_widest if r["station"] in ("D-2", "D-3")]))
+    g: {
+        m: statistics.correlation(
+            [float(r["obs_T"]) for r in xs], [float(r[f"{m}_T"]) for r in xs]
+        )
+        for m in ("fjordsim", k160)
+    }
+    for g, xs in (
+        ("inner", [r for r in in_widest if r["station"] in INNER]),
+        ("drammen", [r for r in in_widest if r["station"] in ("D-2", "D-3")]),
+    )
 }
 assert {r["station"] for r in in_widest} <= INNER | {"D-2", "D-3"}
-assert region_r["inner"][k160] > region_r["inner"]["fjordsim"] and region_r["drammen"]["fjordsim"] > region_r["drammen"][k160]
+assert (
+    region_r["inner"][k160] > region_r["inner"]["fjordsim"]
+    and region_r["drammen"]["fjordsim"] > region_r["drammen"][k160]
+)
 page.p(
     f"In temperature every model is inside the 0.5 circle down to {metres(edges[calm_T][1])} m. Below "
     f"{metres(edges[cold][0])} m every model is too cold and too variable. FjordSim's cold bias grows with depth to "
@@ -1062,8 +1110,12 @@ page.p(
     f"In temperature the RMSE is below σ_obs at {of_n(inside, 'fjordsim', 'T')} stations for FjordSim, "
     f"{of_n(inside, 'norkyst160', 'T')} for NorKyst v3 160 m and {of_n(inside, 'norfjords', 'T')} for NorFjords, "
     f"with a small cold bias (median {plain(median_bias('fjordsim', 'T'))} σ_obs for FjordSim)."
-    + (f" FjordSim's exception is {names(fs_T_out)}"
-       + (", which has a single cast." if set(fs_T_out) <= one_cast else ".") if fs_T_out else "")
+    + (
+        f" FjordSim's exception is {names(fs_T_out)}"
+        + (", which has a single cast." if set(fs_T_out) <= one_cast else ".")
+        if fs_T_out
+        else ""
+    )
 )
 
 page.h3("Bias by station and depth")
