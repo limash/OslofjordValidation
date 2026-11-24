@@ -534,15 +534,18 @@ deep_cold = [
 # ================================================================================================================
 page.h2("abstract", "Abstract", numbered=False)
 page.p(
-    f"FjordSim ran the Oslofjord on a 160 m grid from {START} to {STOP}. We score it against observations: "
-    f"{len(casts)} NIVA casts, {len(imr_casts)} IMR casts and three tide gauges and other Oslofjord models: NorKyst v3 160 m, "
-    f"NorKyst v3 800 m and NorFjords 160 m. FjordSim has the lowest salinity RMSE of all four models "
-    f"({plain(s160['fjordsim_rmse'])} against {plain(s160['norkyst160_rmse'])} g/kg for NorKyst v3 160 m on the same "
-    f"samples) and is the only one that keeps the Drammensfjord's brackish surface layer. NorKyst v3 160 m has the "
-    f"lower temperature RMSE ({plain(t160['norkyst160_rmse'])} against {plain(t160['fjordsim_rmse'])} °C). FjordSim "
-    f"misses the February 2026 inflow to the Inner Oslofjord, and its deep layer is too cold in spring 2026; that "
-    f"cold water is in NorKyst v3 800 m, its boundary source, too. The sill basins start from the NIVA casts, but "
-    f"their deep water freshens through the run. The tide is right to {m2_off:.1f} cm in M2."
+    f"FjordSim ran the Oslofjord on a 160 m grid from {START} to {STOP}. We score it against {len(casts)} NIVA casts, "
+    f"{len(imr_casts)} IMR casts and three tide gauges, beside NorKyst v3 160 m, NorKyst v3 800 m and NorFjords 160 m. "
+    f"FjordSim keeps the stratification best: it has the lowest salinity RMSE ({plain(s160['fjordsim_rmse'])} against "
+    f"{plain(s160['norkyst160_rmse'])} g/kg for NorKyst v3 160 m on the same samples) and is the only model with the "
+    f"Drammensfjord's brackish surface layer. NorKyst v3 160 m has the lower temperature RMSE "
+    f"({plain(t160['norkyst160_rmse'])} against {plain(t160['fjordsim_rmse'])} °C), but its columns miss the deep water "
+    f"of most sill basins. NorFjords renews the deep basins and has the deep temperature closest to the casts, though "
+    f"it brings in too much salt water. FjordSim renews the deep basins less than the ROMS models "
+    f"NorKyst and NorFjords. Its better stratification and its poorer renewal may both come from the vertical grid. "
+    f"FjordSim's flat z-levels follow the stratification, but on their staircase seabed dense water entering over a "
+    f"sill mixes to the bottom; the terrain-following levels of ROMS carry it down along the seabed. FjordSim's deep layer is too cold in spring 2026, like NorKyst v3 800 m, its boundary "
+    f"source. The tide is right to {m2_off:.1f} cm in M2."
 )
 
 page.h2("surface", "Modelled surface fields", numbered=False)
@@ -1434,32 +1437,6 @@ page.figure(
 
 # ================================================================================================================
 page.h2("summary", "Summary")
-# How far each sill basin's NorKyst v3 160 m column ends above the deepest cast (Table 4).
-nk_short = [
-    float(cells[s]["deepest_cast_m"]) - float(nk_points[s]["norkyst_depth_m"])
-    for _, s in basins
-]
-page.p(
-    f"FjordSim keeps the Oslofjord's stratification best: the lowest salinity RMSE, the halocline closest to the "
-    f"casts ({plain(-float(strat['norkyst160']['ALL']['fjordsim_bias']), 1)} g/kg too weak against "
-    f"{plain(-float(strat['norkyst160']['ALL']['norkyst160_bias']), 1)} for NorKyst v3 160 m) and the only brackish "
-    f"Drammensfjord. NorKyst v3 160 m has the best temperature where it has water, but its columns end "
-    f"{span(nk_short, 0)} m above the deepest casts in the sill basins (Table 4). NorFjords renews the deep basins and "
-    f"has the deep temperature closest to the casts, but it brings in too much salt water; FjordSim renews them too "
-    f"little."
-)
-page.p(
-    "The vertical grid accounts for both sides. FjordSim's z-levels are flat, like the fjord's isopycnals, and its "
-    "columns reach the basin floors. The terrain-following levels of NorKyst and NorFjords tilt along the steep fjord "
-    "walls, where advection along them mixes across the stratification "
-    '(<a href="#references">Marchesiello et al., 2009</a>). But a z-grid\'s seabed is a staircase. FjordSim\'s 3D '
-    "snapshots show the February 2026 inflow crossing the Drøbak sill undiluted, falling off the first step onto "
-    "lighter water and mixing that column to the bottom, so it reaches the inner basins too light "
-    '(<a href="https://github.com/NIVANorge/FjordSim.jl/blob/main/KNOWN_ISSUES.md">FjordSim\'s known issues</a>). '
-    "Terrain-following levels carry such an inflow along the seabed. The inflow is diagnosed from the snapshots; the "
-    "stratification is only consistent with the grid, since the models also differ in mixing, advection, rivers "
-    "and forcing."
-)
 page.items(
     [
         f"<b>Salinity:</b> FjordSim beats every reference model (RMSE {plain(s160['fjordsim_rmse'])} against "
@@ -1493,6 +1470,31 @@ page.items(
     ordered=True,
     cls="summary",
 )
+# How far each sill basin's NorKyst v3 160 m column ends above the deepest cast (Table 4).
+nk_short = [
+    float(cells[s]["deepest_cast_m"]) - float(nk_points[s]["norkyst_depth_m"])
+    for _, s in basins
+]
+page.p(
+    f"FjordSim keeps the Oslofjord's stratification best: the lowest salinity RMSE, the halocline closest to the "
+    f"casts ({plain(-float(strat['norkyst160']['ALL']['fjordsim_bias']), 1)} g/kg too weak against "
+    f"{plain(-float(strat['norkyst160']['ALL']['norkyst160_bias']), 1)} for NorKyst v3 160 m) and the only brackish "
+    f"Drammensfjord. NorKyst v3 160 m has the best temperature where it has water, but its columns end "
+    f"{span(nk_short, 0)} m above the deepest casts in the sill basins (Table 4). NorFjords renews the deep basins and "
+    f"has the deep temperature closest to the casts, but it brings in too much salt water; FjordSim renews them too "
+    f"little."
+)
+page.p(
+    "The vertical grid can explain both FjordSim's better stratification and its poorer renewal of the deep basins. "
+    "FjordSim's z-levels are flat, like the fjord's isopycnals, so the numerical mixing along them does not cross the "
+    "stratification. The terrain-following levels of NorKyst and NorFjords tilt along the steep fjord walls, and the "
+    'mixing along them does cross it (<a href="#references">Marchesiello et al., 2009</a>). But on a z-grid the '
+    "seabed is a staircase. FjordSim's 3D snapshots show the February 2026 inflow crossing the Drøbak sill "
+    "undiluted, then falling off the first step onto lighter water. There it mixes the column to the bottom and "
+    "reaches the inner basins too light. Terrain-following levels carry such an inflow down along the seabed. Whether "
+    "the grid also causes the better stratification is not tested: the models also differ in mixing, advection, "
+    "rivers and forcing."
+)
 
 # ================================================================================================================
 page.h2("availability", "Code and data availability")
@@ -1501,8 +1503,6 @@ page.items(
         f'Model: <a href="https://github.com/NIVANorge/FjordSim.jl">FjordSim.jl</a> at commit '
         f'<a href="https://github.com/NIVANorge/FjordSim.jl/commit/{FJORDSIM_COMMIT}"><code>{FJORDSIM_COMMIT[:7]}</code></a>, '
         f"setup <code>examples/oslofjorden/oslofjorden.jl</code>, run <code>{RUN_ID}</code> (tags {' and '.join(STAMPS)}).",
-        f"Scores and figures: this project's <code>src/</code> scripts and <code>reports/{HERE.name}/</code>, run as its "
-        "README describes.",
         "NIVA CTD casts: NIVA's ODM2 database (odm2.p.niva.no), access on request. FerryBox: ferrybox-api.niva.no.",
         "IMR casts: Vannmiljø (vannmiljoapi.miljodirektoratet.no).",
         "Sea level: Kartverket (vannstand.kartverket.no).",
