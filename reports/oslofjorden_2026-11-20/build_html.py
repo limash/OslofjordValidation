@@ -1005,6 +1005,23 @@ cold = min(l for l in edges if all(norm_bias(k, m, "T", x) < 0 and sd_ratio(k, m
 fs_bias_T = [norm_bias(knf, "fjordsim", "T", l) for l in layers_of(knf, "T") if l >= cold]
 assert fs_bias_T == sorted(fs_bias_T, reverse=True)
 deep_T, deep_nk = max(layers_of(knf, "T")), max(layers_of(k160, "T"))
+# The layer where NorKyst v3 160 m's temperature correlation leads FjordSim's most; it leads in every layer.
+r_lead = {l: corr(k160, k160, "T", l) - corr(k160, "fjordsim", "T", l) for l in layers_of(k160, "T")}
+assert min(r_lead.values()) > 0
+widest = max(r_lead, key=r_lead.get)
+# That layer's samples split by region: NorKyst v3 160 m leads in the Inner Oslofjord, FjordSim in the Drammensfjord,
+# and the layer has no other region.
+lo, hi = edges[widest]
+in_widest = [r for r in PAIRS if lo <= float(r["depth"]) < hi
+             and all(math.isfinite(float(r[f"{m}_T"])) for m in ("obs", "fjordsim", k160))]
+region_r = {
+    g: {m: statistics.correlation([float(r["obs_T"]) for r in xs], [float(r[f"{m}_T"]) for r in xs])
+        for m in ("fjordsim", k160)}
+    for g, xs in (("inner", [r for r in in_widest if r["station"] in INNER]),
+                  ("drammen", [r for r in in_widest if r["station"] in ("D-2", "D-3")]))
+}
+assert {r["station"] for r in in_widest} <= INNER | {"D-2", "D-3"}
+assert region_r["inner"][k160] > region_r["inner"]["fjordsim"] and region_r["drammen"]["fjordsim"] > region_r["drammen"][k160]
 page.p(
     f"In temperature every model is inside the 0.5 circle down to {metres(edges[calm_T][1])} m. Below "
     f"{metres(edges[cold][0])} m every model is too cold and too variable. FjordSim's cold bias grows with depth to "
@@ -1013,7 +1030,12 @@ page.p(
     f"(σ_model/σ_obs {plain(sd_ratio(knf, knf, 'T', deep_T))} against FjordSim's {plain(sd_ratio(knf, 'fjordsim', 'T', deep_T))}). "
     f"At {layer_span(deep_nk)} NorKyst v3 160 m is colder than FjordSim ({plain(norm_bias(k160, k160, 'T', deep_nk))} against "
     f"{plain(norm_bias(k160, 'fjordsim', 'T', deep_nk))} σ_obs) and varies less ({plain(sd_ratio(k160, k160, 'T', deep_nk))} "
-    f"against {plain(sd_ratio(k160, 'fjordsim', 'T', deep_nk))})."
+    f"against {plain(sd_ratio(k160, 'fjordsim', 'T', deep_nk))}). On the samples both reach, down to "
+    f"{metres(edges[deep_nk][1])} m, NorKyst v3 160 m correlates better than FjordSim in every layer, most at "
+    f"{layer_span(widest)} ({plain(corr(k160, k160, 'T', widest))} against {plain(corr(k160, 'fjordsim', 'T', widest))}), "
+    f"where it covers {pattern[(k160, k160, 'T', widest)]['stations']} stations. Its lead is in the Inner Oslofjord "
+    f"({plain(region_r['inner'][k160])} against {plain(region_r['inner']['fjordsim'])}); in the Drammensfjord FjordSim "
+    f"correlates better ({plain(region_r['drammen']['fjordsim'])} against {plain(region_r['drammen'][k160])})."
 )
 of_n = lambda f, m, v: f"{f(m, v)} of {len(station_pts(m, v))}"  # noqa: E731
 names = lambda xs: ", ".join(xs[:-1]) + " and " + xs[-1] if len(xs) > 1 else "".join(xs)  # noqa: E731
