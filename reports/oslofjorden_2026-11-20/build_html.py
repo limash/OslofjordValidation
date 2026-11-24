@@ -1434,6 +1434,32 @@ page.figure(
 
 # ================================================================================================================
 page.h2("summary", "Summary")
+# How far each sill basin's NorKyst v3 160 m column ends above the deepest cast (Table 4).
+nk_short = [
+    float(cells[s]["deepest_cast_m"]) - float(nk_points[s]["norkyst_depth_m"])
+    for _, s in basins
+]
+page.p(
+    f"FjordSim keeps the Oslofjord's stratification best: the lowest salinity RMSE, the halocline closest to the "
+    f"casts ({plain(-float(strat['norkyst160']['ALL']['fjordsim_bias']), 1)} g/kg too weak against "
+    f"{plain(-float(strat['norkyst160']['ALL']['norkyst160_bias']), 1)} for NorKyst v3 160 m) and the only brackish "
+    f"Drammensfjord. NorKyst v3 160 m has the best temperature where it has water, but its columns end "
+    f"{span(nk_short, 0)} m above the deepest casts in the sill basins (Table 4). NorFjords renews the deep basins and "
+    f"has the deep temperature closest to the casts, but it brings in too much salt water; FjordSim renews them too "
+    f"little."
+)
+page.p(
+    "The vertical grid accounts for both sides. FjordSim's z-levels are flat, like the fjord's isopycnals, and its "
+    "columns reach the basin floors. The terrain-following levels of NorKyst and NorFjords tilt along the steep fjord "
+    "walls, where advection along them mixes across the stratification "
+    '(<a href="#references">Marchesiello et al., 2009</a>). But a z-grid\'s seabed is a staircase. FjordSim\'s 3D '
+    "snapshots show the February 2026 inflow crossing the Drøbak sill undiluted, falling off the first step onto "
+    "lighter water and mixing that column to the bottom, so it reaches the inner basins too light "
+    '(<a href="https://github.com/NIVANorge/FjordSim.jl/blob/main/KNOWN_ISSUES.md">FjordSim\'s known issues</a>). '
+    "Terrain-following levels carry such an inflow along the seabed. The inflow is diagnosed from the snapshots; the "
+    "stratification is only consistent with the grid, since the models also differ in mixing, advection, rivers "
+    "and forcing."
+)
 page.items(
     [
         f"<b>Salinity:</b> FjordSim beats every reference model (RMSE {plain(s160['fjordsim_rmse'])} against "
@@ -1451,7 +1477,8 @@ page.items(
         f"{salty['fjordsim'][1]} months, and no model has the Glomma plume.",
         f"<b>Surface temperature:</b> FjordSim's surface layer is {signed(fs_top_T[warmest], 1)} °C off in "
         f"{month_name(warmest)} and {signed(fs_top_T[coldest], 1)} °C in {month_name(coldest)}.",
-        f"<b>Inner basins:</b> FjordSim misses the February 2026 inflow and never renews Bunnefjorden; in the deep layer they "
+        f"<b>Inner basins:</b> FjordSim misses the February 2026 inflow, which mixes to the bottom where it falls off "
+        f"the z-level steps behind the Drøbak sill, and never renews Bunnefjorden; in the deep layer they "
         f"are 1.2–{-min(station_band('fjordsim', s, 'T', 50, 1e9) for s in deep_cold):.1f} °C too cold.",
         f"<b>Spring 2026:</b> in the deep layer FjordSim is {span([-x for x in spring_fs])} °C too cold, NorKyst v3 160 m "
         f"{span([-x for x in spring_nk])} °C. NorKyst v3 800 m, FjordSim's boundary source, has the same error near the "
@@ -1465,31 +1492,6 @@ page.items(
     ],
     ordered=True,
     cls="summary",
-)
-
-# ================================================================================================================
-page.h2("next", "Next steps")
-page.items(
-    [
-        "<b>Currents.</b> The run writes hourly velocity at the six ADCP sites of 2014 (Km1, Kn2, Ri1, Rl1, Rm1, Rn1) and "
-        'at the Slagen refinery, whose bottom ADCP measured at 2.5 and 10 m from 1997 (<a href="#references">Hjelmervik et al., 2017</a>). A record '
-        "from 2024–2026 at "
-        "any of them would let the currents be scored in 5-day windows, as NorKyst v3's are.",
-        "<b>Boundary data.</b> The deep spring 2026 error most likely comes from NorKyst v3 800 m. A bias correction of the boundary "
-        'data, which NorKyst\'s developers also plan (<a href="#references">Christensen et al., 2026</a>), or another boundary source would test that.',
-        f"<b>Inner basins.</b> Find why FjordSim misses the February 2026 inflow, which NorKyst v3 160 m carries. Near "
-        f"the boundary FjordSim's deep layer is within {max(abs(float(bnd[(s_, 'T', '2026-02')]['fjordsim_bias'])) for s_ in ('NIVA', 'IMR')):.1f} °C "
-        f"in February 2026, so the suspects are inside the fjord: the Drøbak sill ({sills[0]['model_m']} m in the model, "
-        f"{sills[0]['real_m'].split(' ')[0]} m real, no jetty openings) and the deep mixing.",
-        f"<b>Drammensfjord.</b> Find what freshens its deep water by {plain(d2[0] - d2[-1], 1)} g/kg in two years: mixing "
-        "below the halocline, or too little salt water over the Svelvik sill.",
-        "<b>Svelvik.</b> Find why the strait's strongest currents are too weak: the strait's cross-section in the model, "
-        "or the tidal exchange of the Drammensfjord.",
-        "<b>Representativeness.</b> Score each station's 3×3 neighbouring columns as well as its own, to see how much of "
-        'the error a 160 m shift explains (<a href="#references">Dalsøren et al., 2020</a>). This needs a new column extract on the GCP VM.',
-        "<b>FerryBox.</b> NIVA's FerryBox tracks (4 m, every minute) are fetched but not scored: FjordSim has to be read "
-        "along the tracks from the 3D snapshots.",
-    ]
 )
 
 # ================================================================================================================
@@ -1532,6 +1534,9 @@ page.items(
         "Jolliff, J. K., Kindle, J. C., Shulman, I., Penta, B., Friedrichs, M. A. M., Helber, R., Arnone, R. A. (2009). "
         "Summary diagrams for coupled hydrodynamic-ecosystem model skill assessment. <i>Journal of Marine Systems</i>, 76(1–2), "
         '64–82. <a href="https://doi.org/10.1016/j.jmarsys.2008.05.014">doi:10.1016/j.jmarsys.2008.05.014</a>',
+        "Marchesiello, P., Debreu, L., Couvelard, X. (2009). Spurious diapycnal mixing in terrain-following coordinate "
+        "models: the problem and a solution. <i>Ocean Modelling</i>, 26(3–4), 156–169. "
+        '<a href="https://doi.org/10.1016/j.ocemod.2008.09.004">doi:10.1016/j.ocemod.2008.09.004</a>',
         "Ramadhan, A., Wagner, G. L., Hill, C., Campin, J.-M., Churavy, V., Besard, T., Souza, A., Edelman, A., Ferrari, R., "
         "Marshall, J. (2020). Oceananigans.jl: Fast and friendly geophysical fluid dynamics on GPUs. <i>Journal of Open Source "
         'Software</i>, 5(53), 2018. <a href="https://doi.org/10.21105/joss.02018">doi:10.21105/joss.02018</a>',
