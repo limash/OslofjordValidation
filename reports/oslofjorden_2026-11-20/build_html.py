@@ -563,6 +563,8 @@ FIGURES = [
 page = Page(
     "Validation of FjordSim's Oslofjord simulation",
     'Shamil Iakubov · <a href="mailto:yakubov.sha@gmail.com">yakubov.sha@gmail.com</a><br>'
+    "Cite as: Iakubov, S. (2026). <i>Validation of FjordSim's Oslofjord simulation</i>. Zenodo. "
+    '<a href="https://doi.org/10.5281/zenodo.24532064">https://doi.org/10.5281/zenodo.24532064</a><br>'
     f"Run {CONFIG['run']} (tags {' and '.join(STAMPS)}) · NIVA and IMR casts, Kartverket tide gauges, NorKyst v3 and NorFjords",
     FIGURES,
 )
