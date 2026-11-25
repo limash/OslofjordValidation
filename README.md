@@ -1,5 +1,7 @@
 # Oslofjord validation
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24532064.svg)](https://doi.org/10.5281/zenodo.24532064)
+
 Validation reports of FjordSim's Oslofjord runs (`examples/oslofjorden/oslofjorden.jl` in FjordSim.jl),
 run on GCP and read from the bucket. Each report scores one run against:
 - **NIVA's CTD casts** from ODM2.
