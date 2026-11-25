@@ -190,6 +190,22 @@ The Python fetchers need their API keys in `~/.config/niva-data/`; `ferrybox_fet
 service account, `niva-service-account.json`. Kartverket's monthly files are read by
 `kartverket_series` in `src/tides.jl`.
 
+### Publishing
+
+The newest report is published at https://limash.github.io/OslofjordValidationReport/ from the repo
+[limash/OslofjordValidationReport](https://github.com/limash/OslofjordValidationReport), cloned next to this
+project. Each GitHub release there is archived on Zenodo with its own DOI.
+
+```bash
+bin/publish_pages.sh <report>                     # the page as index.html, its explorers, the figures and videos it links
+cd ../OslofjordValidationReport
+git commit -m "Report <report>" && git push       # the site updates in a minute
+gh release create vN.0 --notes "Report <report>"  # a new Zenodo version
+```
+
+The site keeps only the newest report; earlier ones stay in the releases and on Zenodo. The Zenodo metadata
+(type, author, licence CC BY 4.0) is in the clone's `.zenodo.json`.
+
 ## Origin
 
 The scripts come from the full-period report of run `20261107T210205`, which was archived as
