@@ -119,6 +119,7 @@ REPORT=<report> julia --project src/section_video.jl [fps]   # the Drammensfjord
 bin/vm_run.sh <report> videos [--vm N] [part numbers...]     # surface T, S, elevation and currents per monthly part
 bin/vm_run.sh <report> ferry <yyyy-mm-dd>                    # then:
 REPORT=<report> julia --project src/ferry_video.jl <yyyy-mm-dd> [fps]   # Color Fantasy's crossings that day
+REPORT=<report> julia --project src/ferry_gap.jl            # tables/ferry_gap.csv, over every day with fields
 ```
 
 - **Section video:** made from the run's hourly section file (`stations_section_<tag>.nc`) and the D-2
@@ -132,7 +133,9 @@ REPORT=<report> julia --project src/ferry_video.jl <yyyy-mm-dd> [fps]   # Color 
   (`ferry_<day>_northbound.mp4`, `..._southbound.mp4`). Each shows the surface T and S maps with the ship's
   track coloured by the FerryBox values. Below each map, the FerryBox and FjordSim's top cell along the track,
   each FjordSim value taken when the ship passes. The day's hourly fields are interpolated to each FerryBox
-  minute, one frame per minute, 12 frames per second by default.
+  minute, one frame per minute, 12 frames per second by default. `src/ferry_gap.jl` averages FjordSim minus
+  the FerryBox south of 59.2° N, between 59.2 and 59.6° N, and north of 59.6° N, for each crossing. The report
+  quotes it and links the northbound videos of the days its `FERRY_DAYS` names.
 
 ### `report.toml`
 

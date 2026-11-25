@@ -162,14 +162,13 @@ yr_deep_T = {
     for y in year
 }
 
-# Spring 2026 below 50 m, by month: FjordSim on every sample, NorKyst 160 m beside it.
+# Spring 2026 below 50 m, by month: FjordSim on every sample.
 spring = ["2026-03", "2026-04", "2026-05"]
 deep = {
     m: [r for r in PAIRS if r["time"][:7] == m and float(r["depth"]) >= 50]
     for m in spring
 }
 spring_fs = [stats(deep[m], "fjordsim", "T")[1] for m in spring]
-spring_nk = [stats(deep[m], "norkyst160", "T")[1] for m in spring]
 # The March 2026 casts below 40 m at the profile stations: each station's mean, observed and modelled.
 march = {
     s: [
@@ -368,15 +367,58 @@ salty = {
     for both in [set(months_of(k, "S", "0-5 m")) & set(months_of(k, "S", "5-20 m"))]
 }
 
-# Below 50 m where NorKyst v3 800 m, FjordSim's boundary source, has values (boundary_deep.csv).
-boundary = read("boundary_deep.csv")
-bnd = {(r["source"], r["variable"], r["month"]): r for r in boundary}
-bnd_T = [r for r in boundary if r["variable"] == "T"]
-bnd_close = [
+# FjordSim and NorKyst v3 800 m, its boundary source, by month on the same samples, where NorKyst v3 800 m has
+# values: the upper layer and below 50 m (boundary.csv).
+boundary = read("boundary.csv")
+bnd = {(r["source"], r["band"], r["variable"], r["month"]): r for r in boundary}
+
+
+def bnd_months(source, band, var):
+    """FjordSim's and NorKyst v3 800 m's monthly biases; `source` None for NIVA's and IMR's casts together."""
+    rows = [
+        r
+        for r in boundary
+        if source in (None, r["source"]) and (r["band"], r["variable"]) == (band, var)
+    ]
+    return [float(r["fjordsim_bias"]) for r in rows], [
+        float(r["norkyst800_bias"]) for r in rows
+    ]
+
+
+def bnd_close(source, band, var, within):
+    """Months the two biases differ by less than `within`, and all months."""
+    fs_, nk_ = bnd_months(source, band, var)
+    return sum(abs(a - b) < within for a, b in zip(fs_, nk_)), len(fs_)
+
+
+bnd_r = lambda source, band, var: statistics.correlation(*bnd_months(source, band, var))  # noqa: E731
+# FjordSim's and NorKyst v3 800 m's upper-layer salinity bias at IMR's stations that NorKyst v3 800 m serves
+# (imr_skill_norkyst800.csv), and at NIVA's I-4 in the Glomma estuary (ctd_skill_station_norkyst800.csv).
+imr_upper = [
     r
-    for r in bnd_T
-    if abs(float(r["fjordsim_bias"]) - float(r["norkyst800_bias"])) < 0.5
+    for r in read("imr_skill_norkyst800.csv")
+    if r["station"] != "ALL" and (r["variable"], r["band"]) == ("S", "5-20 m")
 ]
+station_800 = {
+    (r["station"], r["variable"], r["band"]): r
+    for r in read("ctd_skill_station_norkyst800.csv")
+}
+# FjordSim's upper-layer salinity bias at each Inner Oslofjord station.
+inner_upper = [
+    b
+    for s in scored
+    if s in INNER and math.isfinite(b := station_band("fjordsim", s, "S", 5, 20))
+]
+# FjordSim's top cell minus MS Color Fantasy's FerryBox (4 m) on the northbound crossings of the days the
+# report links, south of 59.2° N and north of 59.6° N (ferry_gap.csv).
+FERRY_DAYS = ("2026-02-18", "2026-03-28", "2026-06-16")
+ferry = {
+    (r["day"], r["lat_from"], r["lat_to"]): float(r["fjordsim_minus_ferrybox"])
+    for r in read("ferry_gap.csv")
+    if (r["direction"], r["variable"]) == ("northbound", "S")
+}
+ferry_south = [ferry[(d, "-Inf", "59.2")] for d in FERRY_DAYS]
+ferry_north = [ferry[(d, "59.6", "Inf")] for d in FERRY_DAYS]
 
 # IMR's casts (imr_pairs.csv, imr_skill_*.csv).
 imr_pairs = [r for r in read("imr_pairs.csv") if r["time"] >= SPINUP]
@@ -509,9 +551,9 @@ FIGURES = [
     "surface_drift",
     "basin_drift",
     "hovmoller",
+    "imr",
     "boundary",
     "profiles",
-    "imr",
     "section",
     "svelvik",
     "tide",
@@ -544,8 +586,10 @@ page.p(
     f"it brings in too much salt water. FjordSim renews the deep basins less than the ROMS models "
     f"NorKyst and NorFjords. Its better stratification and its poorer renewal may both come from the vertical grid. "
     f"FjordSim's flat z-levels follow the stratification, but on their staircase seabed dense water entering over a "
-    f"sill mixes to the bottom; the terrain-following levels of ROMS carry it down along the seabed. FjordSim's deep layer is too cold in spring 2026, like NorKyst v3 800 m, its boundary "
-    f"source. The tide is right to {m2_off:.1f} cm in M2."
+    f"sill mixes to the bottom; the terrain-following levels of ROMS carry it down along the seabed. FjordSim's upper "
+    f"layer is too salty throughout and its deep layer too cold in spring 2026, by as much as NorKyst v3 800 m, its "
+    f"boundary source, in the outer fjord: both errors most likely come in over the open boundary. The tide is right "
+    f"to {m2_off:.1f} cm in M2."
 )
 
 page.h2("surface", "Modelled surface fields", numbered=False)
@@ -925,6 +969,15 @@ page.p(
     f"{plain(yr[('2', 'T')][2])} °C. Most of the temperature loss is in the deep layer ({plain(yr_deep_T['1'][2])} to "
     f"{plain(yr_deep_T['2'][2])} °C). Year 1 is {SPINUP} to {YEAR2}, year 2 {YEAR2} to {STOP}."
 )
+ia = lambda v: imr_each[("ALL", v, "all")]  # noqa: E731
+inf = lambda v: imr_vs["norfjords"][("ALL", v, "all")]  # noqa: E731
+page.p(
+    f"IMR's casts cover the outer fjord from Færder to Breiangen, to {max(r['time'] for r in imr_pairs)[:10]}. "
+    f"FjordSim's RMSE there is {plain(ia('S')['fjordsim_rmse'])} g/kg and {plain(ia('T')['fjordsim_rmse'])} °C; "
+    f"on the samples both have, NorFjords' is {plain(inf('S')['norfjords_rmse'])} against "
+    f"{plain(inf('S')['fjordsim_rmse'])} g/kg and {plain(inf('T')['norfjords_rmse'])} against "
+    f"{plain(inf('T')['fjordsim_rmse'])} °C."
+)
 page.figure(
     "scatter",
     "figures/ctd_scatter.png",
@@ -1254,33 +1307,84 @@ page.figure(
     "NorFjords (bottom), daily; the casts are drawn over them in the same colours.",
 )
 
-page.h3("Cold water from the open boundary")
-i_mar, n_mar = bnd[("IMR", "T", "2026-03")], bnd[("NIVA", "T", "2026-03")]
+page.h3("Errors from the open boundary")
+upper_fs = [float(r["fjordsim_bias"]) for r in imr_upper]
+upper_nk = [float(r["norkyst800_bias"]) for r in imr_upper]
+i4 = station_800[("I-4", "S", "0-5 m")]
 page.p(
-    f"FjordSim takes its boundary water from NorKyst v3 800 m. Where NorKyst v3 800 m has values, at the outer "
-    f"stations, both models carry the same deep-layer error month by month ({F('boundary')}). In March 2026 "
-    f"FjordSim is {signed(i_mar['fjordsim_bias'], 1)} °C off and NorKyst v3 800 m {signed(i_mar['norkyst800_bias'], 1)} °C "
-    f"at IMR's casts (Færder, Torbjørnskjær and the others in the outer fjord); at the NIVA casts, "
-    f"{signed(n_mar['fjordsim_bias'], 1)} and {signed(n_mar['norkyst800_bias'], 1)} °C. In {len(bnd_close)} of "
-    f"{len(bnd_T)} monthly means (NIVA and IMR casts apart) the two differ by less than 0.5 °C. So the cold spring 2026 water most likely came in "
-    f'over the open boundary, as <a href="#references">Dalsøren et al. (2020)</a> found for NorFjords in the '
-    "Hardangerfjord. FjordOs, forced by NorKyst-800, was also too cold and too salty at depth in the outer fjord "
-    '(<a href="#references">Hjelmervik et al., 2017</a>).'
+    "FjordSim takes its boundary water from NorKyst v3 800 m. Where NorKyst v3 800 m has values, in the outer fjord, "
+    'the two models share their errors on the same samples, as <a href="#references">Dalsøren et al. (2020)</a> '
+    "found for NorFjords and its parent model in the Hardangerfjord. The salty upper layer and the cold deep water "
+    "of spring 2026 most likely come in over the open boundary."
+)
+page.p(
+    f"<b>The upper layer (5–20 m) is too salty.</b> At IMR's {len(imr_upper)} stations that NorKyst v3 800 m serves, "
+    f"FjordSim's upper layer is {span(upper_fs)} g/kg too salty and NorKyst v3 800 m's {span(upper_nk)}, within "
+    f"{max(abs(a - b) for a, b in zip(upper_fs, upper_nk)):.1f} g/kg of each other at every station ({F('imr')}). The two "
+    f"move together month by month ({F('boundary')}): at IMR's casts their monthly means correlate at "
+    f"r = {bnd_r('IMR', '5-20 m', 'S'):.2f} and differ by less than 0.5 g/kg in "
+    f"{'{} of {}'.format(*bnd_close('IMR', '5-20 m', 'S', 0.5))} months; at the NIVA stations, "
+    f"r = {bnd_r('NIVA', '5-20 m', 'S'):.2f} and {'{} of {}'.format(*bnd_close('NIVA', '5-20 m', 'S', 0.5))}. "
+    f"The excess does not fade inwards: at the {len(inner_upper)} Inner Oslofjord stations FjordSim's upper layer is "
+    f"{span(inner_upper)} g/kg too salty (median {plain(statistics.median(inner_upper), 1)}). In the surface layer "
+    f"the models part where rivers set the salinity: at I-4, in the Glomma estuary, FjordSim is "
+    f"{signed(i4['fjordsim_bias'], 1)} g/kg off and NorKyst v3 800 m {signed(i4['norkyst800_bias'], 1)}."
+)
+page.figure(
+    "imr",
+    "figures/imr_bias.png",
+    "Mean error by depth at IMR's stations, from the outer fjord (left) to Breiangen (right): salinity (top), "
+    "temperature (bottom). Orange: NorKyst v3 160 m, at the stations NorKyst v3 800 m does not serve.",
+)
+# The figure names transliterate the station names (imr.jl's `stem`); the links show the names.
+imr_names = {
+    re.sub(r"[^A-Za-z0-9]", "_", r["station"]): r["station"] for r in imr_pairs
+}
+imr_links = ", ".join(
+    f'<a href="figures/{p.name}">{imr_names.get(p.stem.removeprefix("imr_series_"), p.stem)}</a>'
+    for p in sorted((HERE / "figures").glob("imr_series_*.png"))
+)
+page.p(f"Time series at each IMR station: {imr_links}.")
+
+n_mar, i_mar = (bnd[(src, ">50 m", "T", "2026-03")] for src in ("NIVA", "IMR"))
+page.p(
+    f"<b>The deep layer is too cold in spring 2026.</b> Below 50 m in March 2026 FjordSim is "
+    f"{signed(i_mar['fjordsim_bias'], 1)} °C off and NorKyst v3 800 m {signed(i_mar['norkyst800_bias'], 1)} °C at "
+    f"IMR's casts; at the NIVA casts, {signed(n_mar['fjordsim_bias'], 1)} and {signed(n_mar['norkyst800_bias'], 1)} °C. "
+    f"In {'{} of {}'.format(*bnd_close(None, '>50 m', 'T', 0.5))} monthly means (NIVA and IMR casts apart) the two "
+    "differ by less than 0.5 °C. FjordOs, forced by NorKyst-800, was also too cold and too salty at depth in the outer "
+    'fjord (<a href="#references">Hjelmervik et al., 2017</a>).'
 )
 page.figure(
     "boundary",
-    "figures/boundary_deep.png",
-    "Mean temperature (top) and salinity (bottom) error below 50 m by month, FjordSim and NorKyst v3 800 m on "
-    "the same samples, at the stations NorKyst v3 800 m serves. Solid: NIVA casts; dashed: IMR casts.",
+    "figures/boundary.png",
+    "Mean temperature (top) and salinity (bottom) error by month, in the upper layer (5–20 m, left) and below 50 m "
+    "(right): FjordSim and NorKyst v3 800 m on the same samples, at the stations NorKyst v3 800 m serves. Solid: "
+    "NIVA casts; dashed: IMR casts.",
+)
+and_list = lambda xs: ", ".join(xs[:-1]) + " and " + xs[-1]  # noqa: E731
+assert len({d[:4] for d in FERRY_DAYS}) == 1
+ferry_links = (
+    and_list(
+        [
+            f'<a href="video/ferry_{d}_northbound.mp4">{int(d[8:])} {MONTHS[int(d[5:7]) - 1]}</a>'
+            for d in FERRY_DAYS
+        ]
+    )
+    + f" {FERRY_DAYS[0][:4]}"
+)
+page.p(
+    f"<b>The ferry sees the excess grow towards the boundary.</b> MS Color Fantasy's FerryBox measures salinity at "
+    f"4 m every minute on the Oslo–Kiel route. On its northbound crossings on {ferry_links}, FjordSim's top cell is "
+    f"{and_list([plain(x, 1) for x in ferry_south])} g/kg saltier than the FerryBox south of 59.2° N and "
+    f"{and_list([plain(x, 1) for x in ferry_north])} north of 59.6° N. "
+    "Each video shows FjordSim's surface maps with the ship's track coloured by the FerryBox, and both along the track."
 )
 
 page.h3("Profiles")
-nk_spring = ", ".join(signed(x, 1) for x in spring_nk)
 page.p(
-    f"Spring 2026 is too cold in the deep layer. In March–May 2026 FjordSim's bias there is "
-    f"{', '.join(signed(x, 1) for x in spring_fs)} °C by month; NorKyst v3 160 m's, on its own samples, {nk_spring} °C. "
-    f"Below 40 m the March casts at {', '.join(march)} average {span(march_mean('obs'))} °C, FjordSim "
-    f"{span(march_mean('fjordsim'))} °C ({F('profiles')}). At D-2 FjordSim follows the brackish layer and the "
+    f"The profiles show the cold water from the boundary: below 40 m the March 2026 casts at {', '.join(march)} "
+    f"average {span(march_mean('obs'))} °C, FjordSim {span(march_mean('fjordsim'))} °C ({F('profiles')}). At D-2 FjordSim follows the brackish layer and the "
     "thermocline; the reference models are far too salty at the surface."
 )
 page.figure(
@@ -1295,35 +1399,6 @@ links = ", ".join(
     if p.stem != "profiles_selected"
 )
 page.p(f"Every cast, by station: {links}.")
-
-page.h3("IMR's outer-fjord stations")
-ia = lambda v: imr_each[("ALL", v, "all")]  # noqa: E731
-inf = lambda v: imr_vs["norfjords"][("ALL", v, "all")]  # noqa: E731
-i_top = imr_each[("ALL", "S", "0-5 m")]
-page.p(
-    f"IMR's casts cover the outer fjord from Færder to Breiangen, to {max(r['time'] for r in imr_pairs)[:10]} "
-    f"({F('imr')}). FjordSim's RMSE there is {plain(ia('S')['fjordsim_rmse'])} g/kg and {plain(ia('T')['fjordsim_rmse'])} °C; "
-    f"on the samples both have, NorFjords' is {plain(inf('S')['norfjords_rmse'])} against "
-    f"{plain(inf('S')['fjordsim_rmse'])} g/kg and {plain(inf('T')['norfjords_rmse'])} against "
-    f"{plain(inf('T')['fjordsim_rmse'])} °C. As at the NIVA stations, every model is too salty in the surface layer "
-    f"(FjordSim {signed(i_top['fjordsim_bias'], 1)}, NorKyst v3 800 m {signed(i_top['norkyst800_bias'], 1)}, NorFjords "
-    f"{signed(i_top['norfjords_bias'], 1)} g/kg, each on its own samples)."
-)
-page.figure(
-    "imr",
-    "figures/imr_bias.png",
-    "Mean error by depth at IMR's stations, from the outer fjord (left) to Breiangen (right): salinity (top), "
-    "temperature (bottom). Orange: NorKyst v3 160 m.",
-)
-# The figure names transliterate the station names (imr.jl's `stem`); the links show the names.
-imr_names = {
-    re.sub(r"[^A-Za-z0-9]", "_", r["station"]): r["station"] for r in imr_pairs
-}
-imr_links = ", ".join(
-    f'<a href="figures/{p.name}">{imr_names.get(p.stem.removeprefix("imr_series_"), p.stem)}</a>'
-    for p in sorted((HERE / "figures").glob("imr_series_*.png"))
-)
-page.p(f"Time series at each IMR station: {imr_links}.")
 
 page.h3("The Drammensfjord section")
 s_top = [float(sill[d]["mean_along_ms"]) for d in sill if float(d) < 2]
@@ -1457,9 +1532,10 @@ page.items(
         f"<b>Inner basins:</b> FjordSim misses the February 2026 inflow, which mixes to the bottom where it falls off "
         f"the z-level steps behind the Drøbak sill, and never renews Bunnefjorden; in the deep layer they "
         f"are 1.2–{-min(station_band('fjordsim', s, 'T', 50, 1e9) for s in deep_cold):.1f} °C too cold.",
-        f"<b>Spring 2026:</b> in the deep layer FjordSim is {span([-x for x in spring_fs])} °C too cold, NorKyst v3 160 m "
-        f"{span([-x for x in spring_nk])} °C. NorKyst v3 800 m, FjordSim's boundary source, has the same error near the "
-        "boundary, so the cold water most likely came in over it.",
+        f"<b>Open boundary:</b> in the outer fjord FjordSim's upper layer is too salty by as much as NorKyst v3 800 m, "
+        f"its boundary source, month by month (r = {bnd_r('IMR', '5-20 m', 'S'):.2f} at IMR's casts), and the excess "
+        f"reaches the Inner Oslofjord. Its deep layer is {span([-x for x in spring_fs])} °C too cold in spring 2026, "
+        "like NorKyst v3 800 m's near the boundary. Both errors most likely come in over the open boundary.",
         f"<b>Sill basins:</b> they start from the NIVA casts, but their deep water freshens: by "
         f"{plain(d2[0] - d2[-1], 1)} g/kg at D-2 (100 m) and {plain(ep_s[0] - ep_s[-1], 1)} g/kg at Ep1 (120 m) in two years.",
         f"<b>Second year:</b> worse than the first (RMSE {plain(yr[('1', 'S')][2])} to {plain(yr[('2', 'S')][2])} g/kg, "
